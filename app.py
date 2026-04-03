@@ -16,7 +16,9 @@ Run locally:
 HF Spaces listens on port 7860 by default.
 """
 
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from models import Action, ResetRequest
@@ -69,15 +71,17 @@ def list_tasks():
 
 
 @app.post("/reset")
-def reset(request: ResetRequest):
+def reset(request: Optional[ResetRequest] = Body(default=None)):
     """
     Start (or restart) an episode.
 
     Body: `{"task_id": "task1_easy"}` — defaults to task1_easy.
     Returns the initial Observation.
     """
+    task_id = request.task_id if request is not None else "task1_easy"
+
     try:
-        obs = env.reset(request.task_id)
+        obs = env.reset(task_id)
         return obs.model_dump()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
