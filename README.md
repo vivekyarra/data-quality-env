@@ -185,4 +185,4 @@ data-quality-env/
 
 ## License
 
-MIT — © 2025 Yarra Vivek
+MIT — © 2026 Yarra Vivek
