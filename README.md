@@ -176,10 +176,10 @@ Baseline agent: built-in offline heuristic from `inference.py`.
 |------|-------------|-----------|
 | `task1_easy` | 1.00 | 4 |
 | `task2_medium` | 1.00 | 5 |
-| `task3_hard` | 0.93 | 10 |
-| **Average** | **0.98** | **6.3** |
+| `task3_hard` | 0.83 | 10 |
+| **Average** | **0.94** | **6.3** |
 
-The hard task now tops out below 1.0 for the offline heuristic because it resolves the clinical data issues but leaves the malformed `emergency_contact` values untouched. That deliberate headroom makes stronger models easier to differentiate.
+The hard task now tops out well below 1.0 for the offline heuristic because it resolves the clinical data issues but leaves the malformed `emergency_contact` values untouched. That deliberate headroom makes stronger models easier to differentiate.
 
 *To reproduce: run `python inference.py`. If `HF_TOKEN`, `MODEL_NAME`, and `API_BASE_URL` are set, the script can also use an OpenAI-compatible LLM instead of the heuristic baseline.*
 

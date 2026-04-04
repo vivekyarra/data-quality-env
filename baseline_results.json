@@ -28,17 +28,17 @@
     {
       "task_id": "task3_hard",
       "steps": 10,
-      "final_score": 0.9333,
+      "final_score": 0.8333,
       "breakdown": {
-        "total": 0.9333,
+        "total": 0.8333,
         "duplicate_score": 1.0,
         "missing_value_score": 1.0,
         "date_format_score": 1.0,
-        "phone_format_score": 0.6,
+        "phone_format_score": 0.0,
         "outlier_score": 1.0,
         "negative_vital_score": 1.0
       }
     }
   ],
-  "overall_avg": 0.9777666666666667
+  "overall_avg": 0.9444333333333333
 }
