@@ -1,38 +1,26 @@
 """
-app.py — FastAPI server exposing DataQualityEnv over HTTP (OpenEnv spec).
-
-Endpoints
----------
-GET  /              → environment info
-GET  /health        → liveness probe
-GET  /tasks         → list available tasks
-POST /reset         → start a new episode   body: {"task_id": "task1_easy"}
-POST /step          → apply one action      body: Action JSON
-GET  /state         → current episode state
-
-Run locally:
-    uvicorn app:app --reload --port 7860
-
-HF Spaces listens on port 7860 by default.
+FastAPI server exposing DataQualityEnv over HTTP.
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from models import Action, ResetRequest
 from environment import DataQualityEnv
+from models import Action, Observation, ResetRequest, StateSnapshot
 
-# ── App setup ─────────────────────────────────────────────────────────────────
+APP_NAME = "DataQualityEnv"
+APP_VERSION = "1.0.0"
+APP_DESCRIPTION = (
+    "OpenEnv environment for data quality and cleaning tasks on real-world "
+    "tabular datasets."
+)
 
 app = FastAPI(
-    title="DataQualityEnv",
-    description=(
-        "An OpenEnv-compliant reinforcement learning environment for training AI agents "
-        "to perform data quality / cleaning tasks on real-world tabular datasets."
-    ),
-    version="0.1.0",
+    title=APP_NAME,
+    description=APP_DESCRIPTION,
+    version=APP_VERSION,
 )
 
 app.add_middleware(
@@ -42,42 +30,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Single global environment instance (stateful, session-based for simplicity)
 env = DataQualityEnv()
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+def _metadata_payload() -> Dict[str, Any]:
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "description": APP_DESCRIPTION,
+        "mode": "simulation",
+        "tasks": [t.model_dump() for t in env.list_tasks()],
+        "endpoints": ["/health", "/metadata", "/schema", "/tasks", "/reset", "/step", "/state", "/mcp"],
+    }
+
+
+def _state_schema() -> Dict[str, Any]:
+    return StateSnapshot.model_json_schema()
+
 
 @app.get("/")
 def root():
-    return {
-        "name":        "DataQualityEnv",
-        "version":     "0.1.0",
-        "description": "OpenEnv environment for data-quality / cleaning tasks",
-        "tasks":       [t.task_id for t in env.list_tasks()],
-        "endpoints":   ["/health", "/tasks", "/reset", "/step", "/state"],
-    }
+    return _metadata_payload()
+
+
+@app.get("/metadata")
+def metadata():
+    return _metadata_payload()
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "environment": "DataQualityEnv"}
+    return {"status": "healthy", "environment": APP_NAME}
+
+
+@app.get("/schema")
+def schema():
+    return {
+        "action": Action.model_json_schema(),
+        "observation": Observation.model_json_schema(),
+        "state": _state_schema(),
+    }
+
+
+@app.post("/mcp")
+def mcp_stub(payload: Optional[Dict[str, Any]] = Body(default=None)):
+    request_id = payload.get("id") if isinstance(payload, dict) else None
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "code": -32601,
+            "message": "MCP is not implemented for this environment.",
+        },
+    }
 
 
 @app.get("/tasks")
 def list_tasks():
-    """Return metadata for all available tasks."""
     return [t.model_dump() for t in env.list_tasks()]
 
 
 @app.post("/reset")
 def reset(request: Optional[ResetRequest] = Body(default=None)):
-    """
-    Start (or restart) an episode.
-
-    Body: `{"task_id": "task1_easy"}` — defaults to task1_easy.
-    Returns the initial Observation.
-    """
     task_id = request.task_id if request is not None else "task1_easy"
 
     try:
@@ -89,12 +103,6 @@ def reset(request: Optional[ResetRequest] = Body(default=None)):
 
 @app.post("/step")
 def step(action: Action):
-    """
-    Apply one action to the environment.
-
-    Body: `{"operation": "...", "column": "...", "params": {...}}`
-    Returns StepResult (observation, reward, done, info).
-    """
     try:
         result = env.step(action)
         return result.model_dump()
@@ -106,5 +114,14 @@ def step(action: Action):
 
 @app.get("/state")
 def state():
-    """Return the current episode state (lightweight, no full table)."""
     return env.state()
+
+
+def main(host: str = "0.0.0.0", port: int = 7860):
+    import uvicorn
+
+    uvicorn.run(app, host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()

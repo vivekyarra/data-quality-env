@@ -188,11 +188,18 @@ class DataQualityEnv:
 
     def _get_observation(self) -> Observation:
         task = TASKS[self._task_id]
+        # Convert to object dtype first so missing values can become real JSON nulls
+        # instead of float NaN values that break FastAPI/Starlette JSON rendering.
+        table_records = (
+            self._df.astype(object)
+            .where(pd.notnull(self._df), None)
+            .to_dict(orient="records")
+        )
         return Observation(
             task_id=self._task_id,
             task_name=task["name"],
             task_description=task["description"],
-            table=self._df.where(pd.notnull(self._df), None).to_dict(orient="records"),
+            table=table_records,
             column_schema=task["schema"],
             quality_issues=self._detect_issues(),
             quality_score=self._compute_score(),

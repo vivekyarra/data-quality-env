@@ -1,13 +1,16 @@
-openenv_version: "0.1"
-
+spec_version: 1
 name: data-quality-env
-version: "0.1.0"
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
+
+version: "1.0.0"
 description: >
   A real-world reinforcement learning environment where AI agents learn to clean
   messy tabular datasets. The agent applies data-transformation operations
-  (deduplication, imputation, format normalisation, outlier clipping) to maximise
-  a quality score. Three tasks span easy → medium → hard difficulty.
-
+  such as deduplication, imputation, format normalization, and outlier clipping
+  to maximize a quality score across three tasks.
 author: "Yarra Vivek"
 license: "MIT"
 
@@ -17,40 +20,35 @@ tasks:
     difficulty: easy
     max_steps: 10
     description: >
-      Remove duplicate customer rows (keyed on name+email+city) and fill missing
-      age and email values so the dataset is ready for downstream CRM use.
-
+      Remove duplicate customer rows keyed on name, email, and city, then fill
+      missing age and email values.
   - id: task2_medium
-    name: "Sales Data Standardisation & Cleansing"
+    name: "Sales Data Standardization & Cleansing"
     difficulty: medium
     max_steps: 15
     description: >
-      Fix four date-format variants → ISO 8601, normalise Indian phone numbers
-      to +91-XXXXX-XXXXX, remove negative transaction amounts, and impute
-      missing regional labels.
-
+      Standardize mixed date formats, normalize Indian phone numbers, remove
+      negative transaction amounts, and fill missing region values.
   - id: task3_hard
     name: "Healthcare Records Full Quality Pipeline"
     difficulty: hard
     max_steps: 25
     description: >
-      Full pipeline: remove duplicate patient IDs, fill missing diagnoses and
-      medications, standardise two date columns, clip physiologically impossible
-      vitals (bp_systolic > 200, bp_diastolic > 130, glucose < 0 or > 500),
-      and remove negative glucose readings.
+      Remove duplicate patient IDs, fill missing diagnoses and medications,
+      standardize dates, clip outliers, and remove negative glucose values.
 
 observation_space:
   type: object
   properties:
-    task_id:             {type: string}
-    task_name:           {type: string}
-    task_description:    {type: string}
-    table:               {type: array, items: {type: object}}
-    column_schema:       {type: object}
-    quality_issues:      {type: array, items: {type: string}}
-    quality_score:       {type: number, minimum: 0.0, maximum: 1.0}
-    step_count:          {type: integer}
-    max_steps:           {type: integer}
+    task_id: {type: string}
+    task_name: {type: string}
+    task_description: {type: string}
+    table: {type: array, items: {type: object}}
+    column_schema: {type: object}
+    quality_issues: {type: array, items: {type: string}}
+    quality_score: {type: number, minimum: 0.0, maximum: 1.0}
+    step_count: {type: integer}
+    max_steps: {type: integer}
     available_operations: {type: array, items: {type: string}}
 
 action_space:
@@ -69,18 +67,15 @@ action_space:
     column: {type: string, nullable: true}
     params: {type: object}
 
-reward_range: [0.0, 1.0]
+reward_range: [-1.0, 1.0]
 reward_description: >
-  Dense reward signal: reward = (new_quality_score - old_quality_score) - 0.01 step_penalty.
-  The quality score is a weighted combination of per-issue component scores,
-  each in [0.0, 1.0]. This provides gradient signal throughout the episode,
-  not just at termination.
+  Dense reward signal: reward = (new_quality_score - old_quality_score) - 0.01.
+  The quality score is a weighted combination of per-issue component scores in
+  [0.0, 1.0].
 
 tags:
   - data-cleaning
   - tabular
-  - real-world
-  - imputation
-  - normalisation
   - healthcare
   - finance
+  - reinforcement-learning

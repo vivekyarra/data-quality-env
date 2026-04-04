@@ -2,8 +2,9 @@
 models.py — Typed Pydantic models for DataQualityEnv (OpenEnv spec)
 """
 
-from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class Action(BaseModel):
@@ -16,7 +17,7 @@ class Action(BaseModel):
     """
     operation: str
     column: Optional[str] = None
-    params: Dict[str, Any] = {}
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 
 ALLOWED_OPERATIONS = [
@@ -69,6 +70,16 @@ class StepResult(BaseModel):
 
 class ResetRequest(BaseModel):
     task_id: str = "task1_easy"
+
+
+class StateSnapshot(BaseModel):
+    task_id: Optional[str] = None
+    step_count: int
+    max_steps: Optional[int] = None
+    done: bool
+    episode_reward: float
+    quality_score: Optional[float] = None
+    table_shape: Optional[List[int]] = None
 
 
 class TaskInfo(BaseModel):
