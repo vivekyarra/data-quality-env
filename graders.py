@@ -15,8 +15,8 @@ import pandas as pd
 
 # ── Regex validators ──────────────────────────────────────────────────────────
 
-_ISO_DATE   = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-_PHONE_FMT  = re.compile(r'^\+91-\d{5}-\d{5}$')
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_PHONE_FMT = re.compile(r"^\+91-\d{5}-\d{5}$")
 
 
 def _is_iso_date(s: str) -> bool:
@@ -45,24 +45,24 @@ def grade_task1(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
     """
     dup_key = ["name", "email", "city"]
 
-    orig_dups  = int(original_df.duplicated(subset=dup_key, keep="first").sum())
-    curr_dups  = int(df.duplicated(subset=dup_key, keep="first").sum())
-    dup_score  = _pct_fixed(orig_dups, curr_dups)
+    orig_dups = int(original_df.duplicated(subset=dup_key, keep="first").sum())
+    curr_dups = int(df.duplicated(subset=dup_key, keep="first").sum())
+    dup_score = _pct_fixed(orig_dups, curr_dups)
 
-    orig_miss_age   = int(original_df["age"].isna().sum())
-    curr_miss_age   = int(df["age"].isna().sum())
-    age_score       = _pct_fixed(orig_miss_age, curr_miss_age)
+    orig_miss_age = int(original_df["age"].isna().sum())
+    curr_miss_age = int(df["age"].isna().sum())
+    age_score = _pct_fixed(orig_miss_age, curr_miss_age)
 
     orig_miss_email = int(original_df["email"].isna().sum())
     curr_miss_email = int(df["email"].isna().sum())
-    email_score     = _pct_fixed(orig_miss_email, curr_miss_email)
+    email_score = _pct_fixed(orig_miss_email, curr_miss_email)
 
     total = 0.40 * dup_score + 0.30 * age_score + 0.30 * email_score
 
     return {
-        "total":               round(total,       4),
-        "duplicate_score":     round(dup_score,   4),
-        "age_missing_score":   round(age_score,   4),
+        "total": round(total, 4),
+        "duplicate_score": round(dup_score, 4),
+        "age_missing_score": round(age_score, 4),
         "email_missing_score": round(email_score, 4),
     }
 
@@ -79,13 +79,13 @@ def grade_task2(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
     """
     n = len(df)
 
-    # Date format
+    # Date format — no duplicates in Task 2, row-count ratio is safe here
     valid_dates = sum(1 for v in df["date"].astype(str) if _is_iso_date(v))
-    date_score  = valid_dates / max(n, 1)
+    date_score = valid_dates / max(n, 1)
 
     # Phone format
     valid_phones = sum(1 for v in df["phone"].astype(str) if _is_valid_phone(v))
-    phone_score  = valid_phones / max(n, 1)
+    phone_score = valid_phones / max(n, 1)
 
     # Negative amounts
     orig_neg = int((original_df["amount"] < 0).sum())
@@ -95,15 +95,15 @@ def grade_task2(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
     # Missing regions
     orig_miss_reg = int(original_df["region"].isna().sum())
     curr_miss_reg = int(df["region"].isna().sum())
-    region_score  = _pct_fixed(orig_miss_reg, curr_miss_reg)
+    region_score = _pct_fixed(orig_miss_reg, curr_miss_reg)
 
     total = 0.25 * (date_score + phone_score + neg_score + region_score)
 
     return {
-        "total":                round(total,        4),
-        "date_format_score":    round(date_score,   4),
-        "phone_format_score":   round(phone_score,  4),
-        "negative_amount_score":round(neg_score,    4),
+        "total": round(total, 4),
+        "date_format_score": round(date_score, 4),
+        "phone_format_score": round(phone_score, 4),
+        "negative_amount_score": round(neg_score, 4),
         "region_missing_score": round(region_score, 4),
     }
 
@@ -112,80 +112,114 @@ def grade_task2(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
 
 def grade_task3(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
     """
-    Weights (roughly equal):
+    Six equal-weight components (each ~16.67%):
       duplicate_score      — duplicate patient_ids
       missing_value_score  — missing diagnosis / medication
-      date_format_score    — dob + last_visit in ISO format
+      date_format_score    — dob + last_visit in ISO 8601
       phone_format_score   — emergency_contact in +91-XXXXX-XXXXX format
       outlier_score        — vitals inside physiological range
       negative_vital_score — no negative glucose values
+
+    NOTE: All components use _pct_fixed() against the ORIGINAL dataframe's
+    bad-value count so that row-count changes (e.g. deduplication) never
+    distort scores for unrelated components.
     """
     # --- Duplicates ---
     orig_dups = int(original_df.duplicated(subset=["patient_id"], keep="first").sum())
     curr_dups = int(df.duplicated(subset=["patient_id"], keep="first").sum())
     dup_score = _pct_fixed(orig_dups, curr_dups)
 
+    # Use de-duplicated patient views for every non-duplicate component so
+    # removing duplicate rows does not accidentally improve unrelated scores.
+    current_unique = df.drop_duplicates(subset=["patient_id"], keep="first")
+    original_unique = original_df.drop_duplicates(subset=["patient_id"], keep="first")
+
     # --- Missing diagnosis / medication ---
     key_cols = ["diagnosis", "medication"]
-    orig_miss = sum(int(original_df[c].isna().sum()) for c in key_cols)
-    curr_miss = sum(int(df[c].isna().sum()) for c in key_cols)
+    orig_miss = sum(int(original_unique[c].isna().sum()) for c in key_cols)
+    curr_miss = sum(int(current_unique[c].isna().sum()) for c in key_cols)
     miss_score = _pct_fixed(orig_miss, curr_miss)
 
-    # --- Date format ---
+    # --- Date format (dob + last_visit) — use _pct_fixed so dedup is neutral ---
     date_cols = ["dob", "last_visit"]
-    total_cells = len(df) * len(date_cols)
-    valid_dates = sum(
-        sum(1 for v in df[c].astype(str) if _is_iso_date(v))
+    orig_bad_dates = sum(
+        sum(
+            1
+            for v in original_unique[c].astype(str)
+            if str(v).strip() not in ("nan", "None", "") and not _is_iso_date(v)
+        )
         for c in date_cols
     )
-    date_score = valid_dates / max(total_cells, 1)
-
-    # --- Emergency contact phone format ---
-    valid_phones = sum(
-        1 for v in df["emergency_contact"].astype(str) if _is_valid_phone(v)
+    curr_bad_dates = sum(
+        sum(
+            1
+            for v in current_unique[c].astype(str)
+            if str(v).strip() not in ("nan", "None", "") and not _is_iso_date(v)
+        )
+        for c in date_cols
     )
-    phone_score = valid_phones / max(len(df), 1)
+    date_score = _pct_fixed(orig_bad_dates, curr_bad_dates)
+
+    # --- Emergency contact phone format — use _pct_fixed so dedup is neutral ---
+    orig_bad_phones = sum(
+        1
+        for v in original_unique["emergency_contact"].astype(str)
+        if str(v).strip() not in ("nan", "None", "") and not _is_valid_phone(v)
+    )
+    curr_bad_phones = sum(
+        1
+        for v in current_unique["emergency_contact"].astype(str)
+        if str(v).strip() not in ("nan", "None", "") and not _is_valid_phone(v)
+    )
+    phone_score = _pct_fixed(orig_bad_phones, curr_bad_phones)
 
     # --- Physiological outliers ---
     ranges: Dict[str, Tuple[int, int]] = {
-        "bp_systolic":  (60, 200),
+        "bp_systolic": (60, 200),
         "bp_diastolic": (40, 130),
-        "glucose":      (50, 500),
+        "glucose": (50, 500),
     }
     orig_outliers = sum(
-        int((~original_df[col].between(lo, hi)).sum())
+        int((~original_unique[col].between(lo, hi)).sum())
         for col, (lo, hi) in ranges.items()
     )
     curr_outliers = sum(
-        int((~df[col].between(lo, hi)).sum())
+        int((~current_unique[col].between(lo, hi)).sum())
         for col, (lo, hi) in ranges.items()
     )
     outlier_score = _pct_fixed(orig_outliers, curr_outliers)
 
     # --- Negative vitals (glucose) ---
-    orig_neg_vital = int((original_df["glucose"] < 0).sum())
-    curr_neg_vital = int((df["glucose"] < 0).sum())
+    orig_neg_vital = int((original_unique["glucose"] < 0).sum())
+    curr_neg_vital = int((current_unique["glucose"] < 0).sum())
     neg_vital_score = _pct_fixed(orig_neg_vital, curr_neg_vital)
 
-    total = (dup_score + miss_score + date_score + phone_score + outlier_score + neg_vital_score) / 6.0
+    total = (
+        dup_score
+        + miss_score
+        + date_score
+        + phone_score
+        + outlier_score
+        + neg_vital_score
+    ) / 6.0
 
     return {
-        "total":               round(total,           4),
-        "duplicate_score":     round(dup_score,       4),
-        "missing_value_score": round(miss_score,      4),
-        "date_format_score":   round(date_score,      4),
-        "phone_format_score":  round(phone_score,     4),
-        "outlier_score":       round(outlier_score,   4),
-        "negative_vital_score":round(neg_vital_score, 4),
+        "total": round(total, 4),
+        "duplicate_score": round(dup_score, 4),
+        "missing_value_score": round(miss_score, 4),
+        "date_format_score": round(date_score, 4),
+        "phone_format_score": round(phone_score, 4),
+        "outlier_score": round(outlier_score, 4),
+        "negative_vital_score": round(neg_vital_score, 4),
     }
 
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 _GRADERS = {
-    "task1_easy":   grade_task1,
+    "task1_easy": grade_task1,
     "task2_medium": grade_task2,
-    "task3_hard":   grade_task3,
+    "task3_hard": grade_task3,
 }
 
 
