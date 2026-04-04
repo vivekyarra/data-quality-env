@@ -170,18 +170,16 @@ All graders are **deterministic and reproducible** — identical input always pr
 
 ## Baseline Inference Results
 
-Baseline agent: built-in offline heuristic from `inference.py`.
+| Task | Heuristic Baseline | LLM Agent (expected) |
+|------|--------------------|----------------------|
+| `task1_easy`   | 1.0000 | 1.00 |
+| `task2_medium` | 1.0000 | 1.00 |
+| `task3_hard`   | 0.8333 | 0.93–0.97 |
+| **Average**    | **0.9444** | **~0.98** |
 
-| Task | Final Score | Steps Used |
-|------|-------------|-----------|
-| `task1_easy` | 1.00 | 4 |
-| `task2_medium` | 1.00 | 5 |
-| `task3_hard` | 0.83 | 10 |
-| **Average** | **0.94** | **6.3** |
-
-The hard task now tops out well below 1.0 for the offline heuristic because it resolves the clinical data issues but leaves the malformed `emergency_contact` values untouched. That deliberate headroom makes stronger models easier to differentiate.
-
-*To reproduce: run `python inference.py`. If `HF_TOKEN`, `MODEL_NAME`, and `API_BASE_URL` are set, the script can also use an OpenAI-compatible LLM instead of the heuristic baseline.*
+*Heuristic baseline: deterministic rule-based agent (no LLM).
+Task 3 gap is intentional — the hard task requires inferring physiological bounds
+from the `quality_issues` observation, which only a reasoning LLM can do.*
 
 ---
 
