@@ -1,0 +1,44 @@
+{
+  "policy": "heuristic",
+  "model": "offline-heuristic",
+  "results": [
+    {
+      "task_id": "task1_easy",
+      "steps": 4,
+      "final_score": 1.0,
+      "breakdown": {
+        "total": 1.0,
+        "duplicate_score": 1.0,
+        "age_missing_score": 1.0,
+        "email_missing_score": 1.0
+      }
+    },
+    {
+      "task_id": "task2_medium",
+      "steps": 5,
+      "final_score": 1.0,
+      "breakdown": {
+        "total": 1.0,
+        "date_format_score": 1.0,
+        "phone_format_score": 1.0,
+        "negative_amount_score": 1.0,
+        "region_missing_score": 1.0
+      }
+    },
+    {
+      "task_id": "task3_hard",
+      "steps": 10,
+      "final_score": 0.9333,
+      "breakdown": {
+        "total": 0.9333,
+        "duplicate_score": 1.0,
+        "missing_value_score": 1.0,
+        "date_format_score": 1.0,
+        "phone_format_score": 0.6,
+        "outlier_score": 1.0,
+        "negative_vital_score": 1.0
+      }
+    }
+  ],
+  "overall_avg": 0.9777666666666667
+}

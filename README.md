@@ -57,7 +57,7 @@ Three tasks cover three distinct real-world domains with increasing complexity:
 |----|--------|-----------|-----------|----------------------|
 | `task1_easy` | **CRM / Customer Records** | 🟢 Easy | 10 | Duplicate rows, missing age, missing email |
 | `task2_medium` | **E-commerce / Sales Data** | 🟡 Medium | 15 | Mixed date formats, malformed phone numbers, negative revenue, missing region |
-| `task3_hard` | **Clinical / Healthcare Records** | 🔴 Hard | 25 | All above + physiologically impossible vitals, duplicate patient IDs, missing diagnoses |
+| `task3_hard` | **Clinical / Healthcare Records** | 🔴 Hard | 25 | All above + physiologically impossible vitals, duplicate patient IDs, missing diagnoses, malformed emergency contacts |
 
 ### Task 1 — Customer Records (Easy)
 
@@ -69,7 +69,7 @@ Three tasks cover three distinct real-world domains with increasing complexity:
 
 ### Task 3 — Healthcare Records (Hard)
 
-20 patient records. Issues: 2 duplicate patient IDs, 3 missing diagnoses, 3 missing medications, 3 non-ISO dates across 2 columns (`dob`, `last_visit`), 2 physiologically impossible `bp_systolic` values (>200 mmHg), 1 impossible `bp_diastolic` (>130 mmHg), 2 negative `glucose` readings, 1 missing glucose. **This task is designed to challenge frontier models** — correctly handling all five quality dimensions requires structured planning, not just pattern matching.
+20 patient records. Issues: 2 duplicate patient IDs, 3 missing diagnoses, 3 missing medications, 3 non-ISO dates across 2 columns (`dob`, `last_visit`), 2 physiologically impossible `bp_systolic` values (>200 mmHg), 1 impossible `bp_diastolic` (>130 mmHg), 2 negative `glucose` readings, 1 missing glucose, and 6 malformed `emergency_contact` phone numbers. **This task is designed to challenge frontier models** — correctly handling all six quality dimensions requires structured planning, not just pattern matching.
 
 ---
 
@@ -81,11 +81,12 @@ Three tasks cover three distinct real-world domains with increasing complexity:
   "task_name":            "Healthcare Records Full Quality Pipeline",
   "task_description":     "A hospital export of 20 patient records contains...",
   "table":                [ {"patient_id": "P003", "bp_systolic": 500, ...}, ... ],
-  "column_schema":        { "patient_id": "str", "bp_systolic": "int", "glucose": "float", ... },
+  "column_schema":        { "patient_id": "str", "bp_systolic": "int", "glucose": "float", "emergency_contact": "str", ... },
   "quality_issues": [
     "2 duplicate rows detected (key: [patient_id])",
     "Column 'diagnosis': 3 missing value(s)",
     "Column 'dob': 3 date(s) not in YYYY-MM-DD format",
+    "Column 'emergency_contact': 6 phone number(s) not in +91-XXXXX-XXXXX format",
     "Column 'bp_systolic': 2 value(s) outside valid range [60, 200]",
     "Column 'glucose': 2 negative value(s) detected"
   ],
@@ -130,7 +131,7 @@ reward(t) = quality_score(t) − quality_score(t−1) − 0.01
 - **Near-zero** when a no-op is applied (penalty only: −0.01)
 - **Negative** when a harmful operation degrades quality
 
-The quality score itself is a **weighted sum of per-issue component scores**, each in [0.0, 1.0]. Components are weighted by domain importance (e.g. in healthcare, outlier removal and duplicate patient IDs each carry 20%).
+The quality score itself is a **weighted sum of per-issue component scores**, each in [0.0, 1.0]. In the hard healthcare task, the six dimensions are weighted roughly equally so no single cleanup operation can dominate the final score.
 
 This reward structure allows RL algorithms to learn efficient cleaning strategies without needing episode-end supervision — every intermediate step is informative.
 
@@ -156,11 +157,12 @@ This reward structure allows RL algorithms to learn efficient cleaning strategie
 ### Task 3 — Healthcare Records
 | Component | Weight | Criteria |
 |-----------|--------|---------|
-| `duplicate_score` | 20% | Fraction of duplicate `patient_id` rows removed |
-| `missing_value_score` | 20% | Fraction of missing `diagnosis`/`medication` filled |
-| `date_format_score` | 20% | Fraction of `dob` and `last_visit` in ISO 8601 |
-| `outlier_score` | 20% | Fraction of vitals within physiological range |
-| `negative_vital_score` | 20% | Fraction of negative `glucose` readings removed |
+| `duplicate_score` | 16.67% | Fraction of duplicate `patient_id` rows removed |
+| `missing_value_score` | 16.67% | Fraction of missing `diagnosis`/`medication` filled |
+| `date_format_score` | 16.67% | Fraction of `dob` and `last_visit` in ISO 8601 |
+| `phone_format_score` | 16.67% | Fraction of `emergency_contact` values in `+91-XXXXX-XXXXX` format |
+| `outlier_score` | 16.66% | Fraction of vitals within physiological range |
+| `negative_vital_score` | 16.66% | Fraction of negative `glucose` readings removed |
 
 All graders are **deterministic and reproducible** — identical input always produces identical output. No randomness, no stochasticity.
 
@@ -168,18 +170,18 @@ All graders are **deterministic and reproducible** — identical input always pr
 
 ## Baseline Inference Results
 
-Baseline agent: `Qwen/Qwen2.5-72B-Instruct` via HF Inference Router.
+Baseline agent: built-in offline heuristic from `inference.py`.
 
 | Task | Final Score | Steps Used |
 |------|-------------|-----------|
-| `task1_easy` | 1.00 | 3 |
-| `task2_medium` | 1.00 | 4 |
-| `task3_hard` | 0.97 | 8 |
-| **Average** | **0.99** | **5** |
+| `task1_easy` | 1.00 | 4 |
+| `task2_medium` | 1.00 | 5 |
+| `task3_hard` | 0.93 | 10 |
+| **Average** | **0.98** | **6.3** |
 
-The hard task achieves 0.97 (not 1.0) because the `outlier_score` component requires the agent to infer correct physiological ranges and call `clip_outliers` with the right bounds — a genuine challenge that distinguishes capable agents from weak ones.
+The hard task now tops out below 1.0 for the offline heuristic because it resolves the clinical data issues but leaves the malformed `emergency_contact` values untouched. That deliberate headroom makes stronger models easier to differentiate.
 
-*To reproduce: set `HF_TOKEN`, `MODEL_NAME`, and `API_BASE_URL`, then run `python inference.py`.*
+*To reproduce: run `python inference.py`. If `HF_TOKEN`, `MODEL_NAME`, and `API_BASE_URL` are set, the script can also use an OpenAI-compatible LLM instead of the heuristic baseline.*
 
 ---
 
@@ -229,6 +231,8 @@ python inference.py
 # → Outputs per-task scores + saves baseline_results.json
 ```
 
+If no API credentials are set, `inference.py` falls back to the offline heuristic baseline automatically.
+
 ---
 
 ## API Reference
@@ -255,7 +259,7 @@ data-quality-env/
 ├── models.py        # Pydantic typed models (Action, Observation, Reward, StepResult)
 ├── tasks.py         # Embedded datasets for all 3 tasks
 ├── graders.py       # Deterministic quality graders (one per task)
-├── inference.py     # Baseline script — OpenAI client, reads env vars
+├── inference.py     # Baseline script — offline heuristic or OpenAI-compatible client
 ├── openenv.yaml     # OpenEnv spec metadata
 ├── baseline_results.json  # Pre-computed baseline for reproducibility
 ├── requirements.txt

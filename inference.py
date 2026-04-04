@@ -194,10 +194,11 @@ def main() -> None:
     policy_name = "llm" if policy is not None else "heuristic"
     if policy is None:
         policy = heuristic_action
+    model_label = MODEL_NAME if policy_name == "llm" else "offline-heuristic"
 
     print("DataQualityEnv baseline inference")
     print(f"Policy     : {policy_name}")
-    print(f"Model      : {MODEL_NAME}")
+    print(f"Model      : {model_label}")
     print(f"API base   : {API_BASE_URL}")
 
     env = DataQualityEnv()
@@ -208,7 +209,7 @@ def main() -> None:
 
     with open("baseline_results.json", "w", encoding="utf-8") as handle:
         json.dump(
-            {"policy": policy_name, "model": MODEL_NAME, "results": results, "overall_avg": overall},
+            {"policy": policy_name, "model": model_label, "results": results, "overall_avg": overall},
             handle,
             indent=2,
         )

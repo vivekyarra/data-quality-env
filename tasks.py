@@ -115,31 +115,32 @@ TASK2_CONFIG: Dict[str, Any] = {
 # Issues: 2 duplicate patient_ids, 6 missing values across key columns,
 #         3 date format inconsistencies (dob + last_visit),
 #         3 physiologically impossible vitals (outliers),
-#         3 negative glucose values (impossible)
+#         2 negative glucose values (impossible),
+#         6 malformed emergency contact phone numbers
 # ─────────────────────────────────────────────────────────────────────────────
 
 TASK3_DATA = [
-    {"patient_id": "P001", "name": "Arjun Mehta",   "dob": "1985-06-12",  "gender": "M", "bp_systolic": 120, "bp_diastolic": 80,  "glucose": 95.0,   "diagnosis": "Hypertension", "medication": "Amlodipine", "last_visit": "2024-01-10"},
-    {"patient_id": "P002", "name": "Priya Sharma",  "dob": "12/03/1992",  "gender": "F", "bp_systolic": 115, "bp_diastolic": 75,  "glucose": 88.0,   "diagnosis": "Diabetes",     "medication": "Metformin",  "last_visit": "2024-02-14"},
-    {"patient_id": "P003", "name": "Rohan Gupta",   "dob": "1978-11-25",  "gender": "M", "bp_systolic": 500, "bp_diastolic": 90,  "glucose": 102.0,  "diagnosis": "Asthma",       "medication": "Salbutamol", "last_visit": "March 5, 2024"},
-    {"patient_id": "P004", "name": "Divya Nair",    "dob": "1995-04-08",  "gender": "F", "bp_systolic": 118, "bp_diastolic": 78,  "glucose": 5000.0, "diagnosis": None,           "medication": "Metoprolol", "last_visit": "2024-04-02"},
-    {"patient_id": "P005", "name": "Karan Singh",   "dob": "07-09-1988",  "gender": "M", "bp_systolic": 130, "bp_diastolic": 85,  "glucose": 110.0,  "diagnosis": "Hypertension", "medication": None,         "last_visit": "2024-05-19"},
-    {"patient_id": "P006", "name": "Sneha Reddy",   "dob": "1990-02-17",  "gender": "F", "bp_systolic": 112, "bp_diastolic": 70,  "glucose": 92.0,   "diagnosis": "Thyroid",      "medication": "Levothyrox", "last_visit": "2024-06-11"},
-    {"patient_id": "P007", "name": "Vikram Iyer",   "dob": "1982-08-30",  "gender": "M", "bp_systolic": 140, "bp_diastolic": 300, "glucose": 98.0,   "diagnosis": "Diabetes",     "medication": "Insulin",    "last_visit": "2024-07-08"},
-    {"patient_id": "P008", "name": "Anita Joshi",   "dob": "1975-12-05",  "gender": "F", "bp_systolic": 125, "bp_diastolic": 82,  "glucose": -45.0,  "diagnosis": "Hypertension", "medication": "Atenolol",   "last_visit": "2024-08-22"},
-    {"patient_id": "P009", "name": "Suresh Pillai", "dob": "June 20 1993","gender": "M", "bp_systolic": 118, "bp_diastolic": 76,  "glucose": 105.0,  "diagnosis": None,           "medication": "Aspirin",    "last_visit": "2024-09-15"},
-    {"patient_id": "P010", "name": "Meena Patel",   "dob": "1987-03-14",  "gender": "F", "bp_systolic": 110, "bp_diastolic": 68,  "glucose": 87.0,   "diagnosis": "Anaemia",      "medication": "Iron",       "last_visit": "2024-10-03"},
+    {"patient_id": "P001", "name": "Arjun Mehta",   "dob": "1985-06-12",  "gender": "M", "bp_systolic": 120, "bp_diastolic": 80,  "glucose": 95.0,   "diagnosis": "Hypertension", "medication": "Amlodipine", "emergency_contact": "+91-99887-77661", "last_visit": "2024-01-10"},
+    {"patient_id": "P002", "name": "Priya Sharma",  "dob": "12/03/1992",  "gender": "F", "bp_systolic": 115, "bp_diastolic": 75,  "glucose": 88.0,   "diagnosis": "Diabetes",     "medication": "Metformin",  "emergency_contact": "9988777662",      "last_visit": "2024-02-14"},
+    {"patient_id": "P003", "name": "Rohan Gupta",   "dob": "1978-11-25",  "gender": "M", "bp_systolic": 500, "bp_diastolic": 90,  "glucose": 102.0,  "diagnosis": "Asthma",       "medication": "Salbutamol", "emergency_contact": "+91-88776-66553", "last_visit": "March 5, 2024"},
+    {"patient_id": "P004", "name": "Divya Nair",    "dob": "1995-04-08",  "gender": "F", "bp_systolic": 118, "bp_diastolic": 78,  "glucose": 5000.0, "diagnosis": None,           "medication": "Metoprolol", "emergency_contact": "088776-66554",    "last_visit": "2024-04-02"},
+    {"patient_id": "P005", "name": "Karan Singh",   "dob": "07-09-1988",  "gender": "M", "bp_systolic": 130, "bp_diastolic": 85,  "glucose": 110.0,  "diagnosis": "Hypertension", "medication": None,         "emergency_contact": "+91-77665-55445", "last_visit": "2024-05-19"},
+    {"patient_id": "P006", "name": "Sneha Reddy",   "dob": "1990-02-17",  "gender": "F", "bp_systolic": 112, "bp_diastolic": 70,  "glucose": 92.0,   "diagnosis": "Thyroid",      "medication": "Levothyrox", "emergency_contact": "7766555446",      "last_visit": "2024-06-11"},
+    {"patient_id": "P007", "name": "Vikram Iyer",   "dob": "1982-08-30",  "gender": "M", "bp_systolic": 140, "bp_diastolic": 300, "glucose": 98.0,   "diagnosis": "Diabetes",     "medication": "Insulin",    "emergency_contact": "+91-66554-44337", "last_visit": "2024-07-08"},
+    {"patient_id": "P008", "name": "Anita Joshi",   "dob": "1975-12-05",  "gender": "F", "bp_systolic": 125, "bp_diastolic": 82,  "glucose": -45.0,  "diagnosis": "Hypertension", "medication": "Atenolol",   "emergency_contact": "+91-55443-33228", "last_visit": "2024-08-22"},
+    {"patient_id": "P009", "name": "Suresh Pillai", "dob": "June 20 1993","gender": "M", "bp_systolic": 118, "bp_diastolic": 76,  "glucose": 105.0,  "diagnosis": None,           "medication": "Aspirin",    "emergency_contact": "5544333229",      "last_visit": "2024-09-15"},
+    {"patient_id": "P010", "name": "Meena Patel",   "dob": "1987-03-14",  "gender": "F", "bp_systolic": 110, "bp_diastolic": 68,  "glucose": 87.0,   "diagnosis": "Anaemia",      "medication": "Iron",       "emergency_contact": "+91-44332-22110", "last_visit": "2024-10-03"},
     # Duplicates of P001 and P003
-    {"patient_id": "P001", "name": "Arjun Mehta",   "dob": "1985-06-12",  "gender": "M", "bp_systolic": 120, "bp_diastolic": 80,  "glucose": 95.0,   "diagnosis": "Hypertension", "medication": "Amlodipine", "last_visit": "2024-01-10"},
-    {"patient_id": "P011", "name": "Rahul Verma",   "dob": "1991-07-22",  "gender": "M", "bp_systolic": 122, "bp_diastolic": 79,  "glucose": None,   "diagnosis": "Migraine",     "medication": "Sumatriptan","last_visit": "2024-11-17"},
-    {"patient_id": "P012", "name": "Lakshmi Das",   "dob": "1969-09-01",  "gender": "F", "bp_systolic": 145, "bp_diastolic": 92,  "glucose": 130.0,  "diagnosis": "Diabetes",     "medication": "Glipizide",  "last_visit": "2024-12-05"},
-    {"patient_id": "P013", "name": "Aditya Roy",    "dob": "2000-01-15",  "gender": "M", "bp_systolic": 108, "bp_diastolic": 65,  "glucose": 80.0,   "diagnosis": None,           "medication": None,         "last_visit": "2025-01-09"},
-    {"patient_id": "P003", "name": "Rohan Gupta",   "dob": "1978-11-25",  "gender": "M", "bp_systolic": 500, "bp_diastolic": 90,  "glucose": 102.0,  "diagnosis": "Asthma",       "medication": "Salbutamol", "last_visit": "March 5, 2024"},
-    {"patient_id": "P014", "name": "Pooja Mishra",  "dob": "1996-05-28",  "gender": "F", "bp_systolic": 116, "bp_diastolic": 74,  "glucose": 91.0,   "diagnosis": "PCOS",         "medication": "Metformin",  "last_visit": "2025-02-18"},
-    {"patient_id": "P015", "name": "Nitin Kumar",   "dob": "1983-10-09",  "gender": "M", "bp_systolic": 135, "bp_diastolic": 88,  "glucose": -20.0,  "diagnosis": "Hypertension", "medication": "Losartan",   "last_visit": "2025-03-01"},
-    {"patient_id": "P016", "name": "Swati Ghosh",   "dob": "1979-02-14",  "gender": "F", "bp_systolic": 128, "bp_diastolic": 84,  "glucose": 99.0,   "diagnosis": "Thyroid",      "medication": None,         "last_visit": "2025-03-12"},
-    {"patient_id": "P017", "name": "Rajesh Bansal", "dob": "1965-12-30",  "gender": "M", "bp_systolic": 160, "bp_diastolic": 100, "glucose": 145.0,  "diagnosis": "Diabetes",     "medication": "Insulin",    "last_visit": "2025-03-20"},
-    {"patient_id": "P018", "name": "Kavita Rao",    "dob": "1988-08-05",  "gender": "F", "bp_systolic": 119, "bp_diastolic": 77,  "glucose": 94.0,   "diagnosis": "Anaemia",      "medication": "Iron",       "last_visit": "2025-03-25"},
+    {"patient_id": "P001", "name": "Arjun Mehta",   "dob": "1985-06-12",  "gender": "M", "bp_systolic": 120, "bp_diastolic": 80,  "glucose": 95.0,   "diagnosis": "Hypertension", "medication": "Amlodipine", "emergency_contact": "+91-99887-77661", "last_visit": "2024-01-10"},
+    {"patient_id": "P011", "name": "Rahul Verma",   "dob": "1991-07-22",  "gender": "M", "bp_systolic": 122, "bp_diastolic": 79,  "glucose": None,   "diagnosis": "Migraine",     "medication": "Sumatriptan","emergency_contact": "+91-33221-11001", "last_visit": "2024-11-17"},
+    {"patient_id": "P012", "name": "Lakshmi Das",   "dob": "1969-09-01",  "gender": "F", "bp_systolic": 145, "bp_diastolic": 92,  "glucose": 130.0,  "diagnosis": "Diabetes",     "medication": "Glipizide",  "emergency_contact": "033221-11002",    "last_visit": "2024-12-05"},
+    {"patient_id": "P013", "name": "Aditya Roy",    "dob": "2000-01-15",  "gender": "M", "bp_systolic": 108, "bp_diastolic": 65,  "glucose": 80.0,   "diagnosis": None,           "medication": None,         "emergency_contact": "+91-22110-00193", "last_visit": "2025-01-09"},
+    {"patient_id": "P003", "name": "Rohan Gupta",   "dob": "1978-11-25",  "gender": "M", "bp_systolic": 500, "bp_diastolic": 90,  "glucose": 102.0,  "diagnosis": "Asthma",       "medication": "Salbutamol", "emergency_contact": "+91-88776-66553", "last_visit": "March 5, 2024"},
+    {"patient_id": "P014", "name": "Pooja Mishra",  "dob": "1996-05-28",  "gender": "F", "bp_systolic": 116, "bp_diastolic": 74,  "glucose": 91.0,   "diagnosis": "PCOS",         "medication": "Metformin",  "emergency_contact": "+91-11009-98884", "last_visit": "2025-02-18"},
+    {"patient_id": "P015", "name": "Nitin Kumar",   "dob": "1983-10-09",  "gender": "M", "bp_systolic": 135, "bp_diastolic": 88,  "glucose": -20.0,  "diagnosis": "Hypertension", "medication": "Losartan",   "emergency_contact": "+91-90908-80776", "last_visit": "2025-03-01"},
+    {"patient_id": "P016", "name": "Swati Ghosh",   "dob": "1979-02-14",  "gender": "F", "bp_systolic": 128, "bp_diastolic": 84,  "glucose": 99.0,   "diagnosis": "Thyroid",      "medication": None,         "emergency_contact": "9090880777",      "last_visit": "2025-03-12"},
+    {"patient_id": "P017", "name": "Rajesh Bansal", "dob": "1965-12-30",  "gender": "M", "bp_systolic": 160, "bp_diastolic": 100, "glucose": 145.0,  "diagnosis": "Diabetes",     "medication": "Insulin",    "emergency_contact": "+91-80807-70668", "last_visit": "2025-03-20"},
+    {"patient_id": "P018", "name": "Kavita Rao",    "dob": "1988-08-05",  "gender": "F", "bp_systolic": 119, "bp_diastolic": 77,  "glucose": 94.0,   "diagnosis": "Anaemia",      "medication": "Iron",       "emergency_contact": "+91-70706-60559", "last_visit": "2025-03-25"},
 ]
 
 TASK3_CONFIG: Dict[str, Any] = {
@@ -148,7 +149,8 @@ TASK3_CONFIG: Dict[str, Any] = {
         "A hospital export of 20 patient records contains a range of quality issues: duplicate patient IDs, "
         "missing diagnoses and medications, inconsistent date formats in dob and last_visit fields, "
         "physiologically impossible vital signs (bp_systolic=500, bp_diastolic=300, negative glucose), "
-        "and other anomalies. Apply the full data-quality pipeline to bring all records to clinical standard."
+        "and malformed emergency contact phone numbers. Apply the full data-quality pipeline to bring all "
+        "records to clinical standard."
     ),
     "difficulty": "hard",
     "max_steps": 25,
@@ -156,11 +158,12 @@ TASK3_CONFIG: Dict[str, Any] = {
     "schema": {
         "patient_id": "str", "name": "str", "dob": "str", "gender": "str",
         "bp_systolic": "int", "bp_diastolic": "int", "glucose": "float",
-        "diagnosis": "str", "medication": "str", "last_visit": "str",
+        "diagnosis": "str", "medication": "str", "emergency_contact": "str",
+        "last_visit": "str",
     },
     "dup_subset": ["patient_id"],
     "date_columns": ["dob", "last_visit"],
-    "phone_columns": [],
+    "phone_columns": ["emergency_contact"],
     "positive_columns": ["glucose"],
     "outlier_ranges": {
         "bp_systolic":  (60, 200),
@@ -168,11 +171,12 @@ TASK3_CONFIG: Dict[str, Any] = {
         "glucose":      (50, 500),
     },
     "score_weights": {
-        "duplicate_score":      0.20,
-        "missing_value_score":  0.20,
-        "date_format_score":    0.20,
-        "outlier_score":        0.20,
-        "negative_vital_score": 0.20,
+        "duplicate_score":      0.1667,
+        "missing_value_score":  0.1667,
+        "date_format_score":    0.1667,
+        "phone_format_score":   0.1667,
+        "outlier_score":        0.1666,
+        "negative_vital_score": 0.1666,
     },
 }
 

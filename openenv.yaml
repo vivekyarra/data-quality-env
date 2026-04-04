@@ -35,7 +35,8 @@ tasks:
     max_steps: 25
     description: >
       Remove duplicate patient IDs, fill missing diagnoses and medications,
-      standardize dates, clip outliers, and remove negative glucose values.
+      standardize dates, normalize emergency contact phone numbers, clip
+      outliers, and remove negative glucose values.
 
 observation_space:
   type: object

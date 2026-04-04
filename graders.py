@@ -112,10 +112,11 @@ def grade_task2(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
 
 def grade_task3(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
     """
-    Weights (each 20%):
+    Weights (roughly equal):
       duplicate_score      — duplicate patient_ids
       missing_value_score  — missing diagnosis / medication
       date_format_score    — dob + last_visit in ISO format
+      phone_format_score   — emergency_contact in +91-XXXXX-XXXXX format
       outlier_score        — vitals inside physiological range
       negative_vital_score — no negative glucose values
     """
@@ -139,6 +140,12 @@ def grade_task3(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
     )
     date_score = valid_dates / max(total_cells, 1)
 
+    # --- Emergency contact phone format ---
+    valid_phones = sum(
+        1 for v in df["emergency_contact"].astype(str) if _is_valid_phone(v)
+    )
+    phone_score = valid_phones / max(len(df), 1)
+
     # --- Physiological outliers ---
     ranges: Dict[str, Tuple[int, int]] = {
         "bp_systolic":  (60, 200),
@@ -160,13 +167,14 @@ def grade_task3(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]
     curr_neg_vital = int((df["glucose"] < 0).sum())
     neg_vital_score = _pct_fixed(orig_neg_vital, curr_neg_vital)
 
-    total = 0.20 * (dup_score + miss_score + date_score + outlier_score + neg_vital_score)
+    total = (dup_score + miss_score + date_score + phone_score + outlier_score + neg_vital_score) / 6.0
 
     return {
         "total":               round(total,           4),
         "duplicate_score":     round(dup_score,       4),
         "missing_value_score": round(miss_score,      4),
         "date_format_score":   round(date_score,      4),
+        "phone_format_score":  round(phone_score,     4),
         "outlier_score":       round(outlier_score,   4),
         "negative_vital_score":round(neg_vital_score, 4),
     }
