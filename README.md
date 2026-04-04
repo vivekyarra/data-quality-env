@@ -90,7 +90,7 @@ Three tasks cover three distinct real-world domains with increasing complexity:
     "Column 'bp_systolic': 2 value(s) outside valid range [60, 200]",
     "Column 'glucose': 2 negative value(s) detected"
   ],
-  "quality_score":        0.175,
+  "quality_score":        0.0000,
   "step_count":           0,
   "max_steps":            25,
   "available_operations": ["remove_duplicates", "fill_missing", "standardize_date",
@@ -99,6 +99,8 @@ Three tasks cover three distinct real-world domains with increasing complexity:
 ```
 
 The `quality_issues` field is designed to be directly parseable by LLM agents — each string explicitly names the column, the count, and the violation type, allowing chain-of-thought reasoning to map directly to the right operation.
+
+All six grader components start at `0.0` at reset because every issue present in the initial dataset defines the baseline bad-value count.
 
 ---
 
