@@ -1,230 +1,168 @@
 """
-graders.py — Deterministic quality graders for all three tasks.
+Hidden-target graders for DataQualityEnv.
 
-Each grader receives the *current* DataFrame and the *original* DataFrame
-(as loaded at reset time) and returns a dict:
-  { "total": float, "<component>_score": float, ... }
-
-All scores are in [0.0, 1.0]. Graders are purely functional — no side effects.
+Each grader compares the agent-visible dataframe against a hidden target
+dataframe using stable row ids. This makes row deletion and accidental data loss
+visible to the scorer instead of letting agents game issue counts.
 """
 
-import re
-from typing import Dict, Tuple
+from __future__ import annotations
+
+from typing import Any, Dict, Iterable
 
 import pandas as pd
 
-# ── Regex validators ──────────────────────────────────────────────────────────
+from tasks import TASKS, make_row_id
 
-_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_PHONE_FMT = re.compile(r"^\+91-\d{5}-\d{5}$")
-
-
-def _is_iso_date(s: str) -> bool:
-    return bool(_ISO_DATE.match(str(s).strip()))
+ROW_FIDELITY_THRESHOLD = 0.90
 
 
-def _is_valid_phone(s: str) -> bool:
-    return bool(_PHONE_FMT.match(str(s).strip()))
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
 
 
-def _pct_fixed(original_bad: int, current_bad: int) -> float:
-    """Fraction of originally-bad values that are now fixed (0.0–1.0)."""
-    if original_bad == 0:
+def _is_missing(value: Any) -> bool:
+    return pd.isna(value)
+
+
+def _values_equal(left: Any, right: Any) -> bool:
+    if _is_missing(left) and _is_missing(right):
+        return True
+    return left == right
+
+
+def _with_hidden_row_ids(task_id: str, df: pd.DataFrame) -> pd.DataFrame:
+    if "__row_id__" in df.columns:
+        return df.copy()
+    enriched = df.copy()
+    enriched["__row_id__"] = [make_row_id(task_id, idx) for idx in range(len(enriched))]
+    return enriched
+
+
+def _target_dataframe(task_id: str) -> pd.DataFrame:
+    task = TASKS[task_id]
+    rows = []
+    for source_row, row in zip(task["target_source_rows"], task["target_data"]):
+        enriched = dict(row)
+        enriched["__row_id__"] = make_row_id(task_id, source_row)
+        rows.append(enriched)
+    return pd.DataFrame(rows)
+
+
+def _f1(precision: float, recall: float) -> float:
+    if precision + recall == 0:
+        return 0.0
+    return 2.0 * precision * recall / (precision + recall)
+
+
+def _row_fidelity_score(current_df: pd.DataFrame, target_df: pd.DataFrame) -> tuple[float, float, float]:
+    produced_ids = set(current_df["__row_id__"].tolist())
+    target_ids = set(target_df["__row_id__"].tolist())
+    shared_ids = produced_ids & target_ids
+
+    current_indexed = current_df.set_index("__row_id__")
+    target_indexed = target_df.set_index("__row_id__")
+    public_columns = [column for column in target_df.columns if column != "__row_id__"]
+
+    matched_correct = 0
+    for row_id in shared_ids:
+        if all(
+            _values_equal(current_indexed.at[row_id, column], target_indexed.at[row_id, column])
+            for column in public_columns
+        ):
+            matched_correct += 1
+
+    precision = matched_correct / len(produced_ids) if produced_ids else 0.0
+    recall = matched_correct / len(target_ids) if target_ids else 1.0
+    return _f1(precision, recall), precision, recall
+
+
+def _column_match_score(
+    current_df: pd.DataFrame,
+    original_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+    columns: Iterable[str],
+) -> float:
+    target_indexed = target_df.set_index("__row_id__")
+    target_ids = target_indexed.index
+    original_indexed = original_df.set_index("__row_id__").reindex(target_ids)
+    current_indexed = current_df.set_index("__row_id__").reindex(target_ids)
+
+    dirty_cells = 0
+    matched_cells = 0
+
+    for row_id in target_ids:
+        for column in columns:
+            original_value = original_indexed.at[row_id, column]
+            target_value = target_indexed.at[row_id, column]
+            if not _values_equal(original_value, target_value):
+                dirty_cells += 1
+                current_value = current_indexed.at[row_id, column]
+                if _values_equal(current_value, target_value):
+                    matched_cells += 1
+
+    if dirty_cells == 0:
         return 1.0
-    return max(0.0, 1.0 - current_bad / original_bad)
+    return matched_cells / dirty_cells
 
 
-# ── Task 1 — Customer Records ─────────────────────────────────────────────────
+def _removed_row_score(current_df: pd.DataFrame, task_id: str, source_rows: Iterable[int]) -> float:
+    source_row_ids = [make_row_id(task_id, row) for row in source_rows]
+    if not source_row_ids:
+        return 1.0
+    current_ids = set(current_df["__row_id__"].tolist())
+    removed = sum(1 for row_id in source_row_ids if row_id not in current_ids)
+    return removed / len(source_row_ids)
 
-def grade_task1(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
-    """
-    Weights:
-      duplicate_score      40%
-      age_missing_score    30%
-      email_missing_score  30%
-    """
-    dup_key = ["name", "email", "city"]
 
-    orig_dups = int(original_df.duplicated(subset=dup_key, keep="first").sum())
-    curr_dups = int(df.duplicated(subset=dup_key, keep="first").sum())
-    dup_score = _pct_fixed(orig_dups, curr_dups)
-
-    orig_miss_age = int(original_df["age"].isna().sum())
-    curr_miss_age = int(df["age"].isna().sum())
-    age_score = _pct_fixed(orig_miss_age, curr_miss_age)
-
-    orig_miss_email = int(original_df["email"].isna().sum())
-    curr_miss_email = int(df["email"].isna().sum())
-    email_score = _pct_fixed(orig_miss_email, curr_miss_email)
-
-    total = 0.40 * dup_score + 0.30 * age_score + 0.30 * email_score
-
+def _sanitize_breakdown(breakdown: Dict[str, float]) -> Dict[str, float]:
     return {
-        "total": round(total, 4),
-        "duplicate_score": round(dup_score, 4),
-        "age_missing_score": round(age_score, 4),
-        "email_missing_score": round(email_score, 4),
+        key: round(_clamp(float(value), 0.0, 1.0), 4) if isinstance(value, (int, float)) else value
+        for key, value in breakdown.items()
     }
 
 
-# ── Task 2 — Sales Data ───────────────────────────────────────────────────────
+def _grade(task_id: str, df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
+    task = TASKS[task_id]
+    current_df = _with_hidden_row_ids(task_id, df)
+    original_with_ids = _with_hidden_row_ids(task_id, original_df)
+    target_df = _target_dataframe(task_id)
 
-def grade_task2(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
-    """
-    Weights:
-      date_format_score      25%
-      phone_format_score     25%
-      negative_amount_score  25%
-      region_missing_score   25%
-    """
-    n = len(df)
+    row_fidelity, row_precision, row_recall = _row_fidelity_score(current_df, target_df)
 
-    # Date format — no duplicates in Task 2, row-count ratio is safe here
-    valid_dates = sum(1 for v in df["date"].astype(str) if _is_iso_date(v))
-    date_score = valid_dates / max(n, 1)
-
-    # Phone format
-    valid_phones = sum(1 for v in df["phone"].astype(str) if _is_valid_phone(v))
-    phone_score = valid_phones / max(n, 1)
-
-    # Negative amounts
-    orig_neg = int((original_df["amount"] < 0).sum())
-    curr_neg = int((df["amount"] < 0).sum())
-    neg_score = _pct_fixed(orig_neg, curr_neg)
-
-    # Missing regions
-    orig_miss_reg = int(original_df["region"].isna().sum())
-    curr_miss_reg = int(df["region"].isna().sum())
-    region_score = _pct_fixed(orig_miss_reg, curr_miss_reg)
-
-    total = 0.25 * (date_score + phone_score + neg_score + region_score)
-
-    return {
-        "total": round(total, 4),
-        "date_format_score": round(date_score, 4),
-        "phone_format_score": round(phone_score, 4),
-        "negative_amount_score": round(neg_score, 4),
-        "region_missing_score": round(region_score, 4),
+    breakdown: Dict[str, float] = {
+        "row_fidelity_score": row_fidelity,
     }
 
+    for score_name, spec in task["score_components"].items():
+        if spec["type"] == "columns":
+            breakdown[score_name] = _column_match_score(
+                current_df=current_df,
+                original_df=original_with_ids,
+                target_df=target_df,
+                columns=spec["columns"],
+            )
+        elif spec["type"] == "removed_rows":
+            breakdown[score_name] = _removed_row_score(
+                current_df=current_df,
+                task_id=task_id,
+                source_rows=spec["source_rows"],
+            )
+        else:
+            raise ValueError(f"Unknown score component type: {spec['type']}")
 
-# ── Task 3 — Healthcare Records ───────────────────────────────────────────────
+    raw_total = 0.0
+    for score_name, weight in task["score_weights"].items():
+        raw_total += weight * breakdown[score_name]
 
-def grade_task3(df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
-    """
-    Six equal-weight components (each ~16.67%):
-      duplicate_score      — duplicate patient_ids
-      missing_value_score  — missing diagnosis / medication
-      date_format_score    — dob + last_visit in ISO 8601
-      phone_format_score   — emergency_contact in +91-XXXXX-XXXXX format
-      outlier_score        — vitals inside physiological range
-      negative_vital_score — no negative glucose values
+    if row_precision < ROW_FIDELITY_THRESHOLD or row_recall < ROW_FIDELITY_THRESHOLD:
+        raw_total = min(raw_total, row_fidelity)
 
-    NOTE: All components use _pct_fixed() against the ORIGINAL dataframe's
-    bad-value count so that row-count changes (e.g. deduplication) never
-    distort scores for unrelated components.
-    """
-    # --- Duplicates ---
-    orig_dups = int(original_df.duplicated(subset=["patient_id"], keep="first").sum())
-    curr_dups = int(df.duplicated(subset=["patient_id"], keep="first").sum())
-    dup_score = _pct_fixed(orig_dups, curr_dups)
-
-    # Use de-duplicated patient views for every non-duplicate component so
-    # removing duplicate rows does not accidentally improve unrelated scores.
-    current_unique = df.drop_duplicates(subset=["patient_id"], keep="first")
-    original_unique = original_df.drop_duplicates(subset=["patient_id"], keep="first")
-
-    # --- Missing diagnosis / medication ---
-    key_cols = ["diagnosis", "medication"]
-    orig_miss = sum(int(original_unique[c].isna().sum()) for c in key_cols)
-    curr_miss = sum(int(current_unique[c].isna().sum()) for c in key_cols)
-    miss_score = _pct_fixed(orig_miss, curr_miss)
-
-    # --- Date format (dob + last_visit) — use _pct_fixed so dedup is neutral ---
-    date_cols = ["dob", "last_visit"]
-    orig_bad_dates = sum(
-        sum(
-            1
-            for v in original_unique[c].astype(str)
-            if str(v).strip() not in ("nan", "None", "") and not _is_iso_date(v)
-        )
-        for c in date_cols
-    )
-    curr_bad_dates = sum(
-        sum(
-            1
-            for v in current_unique[c].astype(str)
-            if str(v).strip() not in ("nan", "None", "") and not _is_iso_date(v)
-        )
-        for c in date_cols
-    )
-    date_score = _pct_fixed(orig_bad_dates, curr_bad_dates)
-
-    # --- Emergency contact phone format — use _pct_fixed so dedup is neutral ---
-    orig_bad_phones = sum(
-        1
-        for v in original_unique["emergency_contact"].astype(str)
-        if str(v).strip() not in ("nan", "None", "") and not _is_valid_phone(v)
-    )
-    curr_bad_phones = sum(
-        1
-        for v in current_unique["emergency_contact"].astype(str)
-        if str(v).strip() not in ("nan", "None", "") and not _is_valid_phone(v)
-    )
-    phone_score = _pct_fixed(orig_bad_phones, curr_bad_phones)
-
-    # --- Physiological outliers ---
-    ranges: Dict[str, Tuple[int, int]] = {
-        "bp_systolic": (60, 200),
-        "bp_diastolic": (40, 130),
-        "glucose": (50, 500),
-    }
-    orig_outliers = sum(
-        int((~original_unique[col].between(lo, hi)).sum())
-        for col, (lo, hi) in ranges.items()
-    )
-    curr_outliers = sum(
-        int((~current_unique[col].between(lo, hi)).sum())
-        for col, (lo, hi) in ranges.items()
-    )
-    outlier_score = _pct_fixed(orig_outliers, curr_outliers)
-
-    # --- Negative vitals (glucose) ---
-    orig_neg_vital = int((original_unique["glucose"] < 0).sum())
-    curr_neg_vital = int((current_unique["glucose"] < 0).sum())
-    neg_vital_score = _pct_fixed(orig_neg_vital, curr_neg_vital)
-
-    total = (
-        dup_score
-        + miss_score
-        + date_score
-        + phone_score
-        + outlier_score
-        + neg_vital_score
-    ) / 6.0
-
-    return {
-        "total": round(total, 4),
-        "duplicate_score": round(dup_score, 4),
-        "missing_value_score": round(miss_score, 4),
-        "date_format_score": round(date_score, 4),
-        "phone_format_score": round(phone_score, 4),
-        "outlier_score": round(outlier_score, 4),
-        "negative_vital_score": round(neg_vital_score, 4),
-    }
-
-
-# ── Dispatcher ────────────────────────────────────────────────────────────────
-
-_GRADERS = {
-    "task1_easy": grade_task1,
-    "task2_medium": grade_task2,
-    "task3_hard": grade_task3,
-}
+    breakdown["total"] = raw_total
+    return _sanitize_breakdown(breakdown)
 
 
 def grade(task_id: str, df: pd.DataFrame, original_df: pd.DataFrame) -> Dict[str, float]:
-    """Call the correct grader for *task_id* and return its score dict."""
-    if task_id not in _GRADERS:
+    if task_id not in TASKS:
         raise ValueError(f"No grader for task_id='{task_id}'")
-    return _GRADERS[task_id](df, original_df)
+    return _grade(task_id, df, original_df)

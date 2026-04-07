@@ -1,191 +1,634 @@
 """
-tasks.py — Task definitions and embedded datasets for DataQualityEnv.
+Task definitions for DataQualityEnv.
 
-Three tasks with increasing difficulty:
-  task1_easy   → Customer records  (deduplication + imputation)
-  task2_medium → Sales data        (format standardisation + cleaning)
-  task3_hard   → Healthcare records (full pipeline: all issue types)
+The public dataset rows intentionally do not include the hidden ``__row_id__``
+used for grading. Row ids are injected at reset time so the environment can
+grade against hidden target outputs without leaking the canonical alignment to
+the agent.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TASK 1 — Customer Records (Easy)
-# Issues: 3 duplicate rows, 5 missing ages, 2 missing emails
-# ─────────────────────────────────────────────────────────────────────────────
+
+def make_row_id(task_id: str, row_index: int) -> str:
+    return f"{task_id}_r{row_index:03d}"
+
+
+def _build_task(
+    *,
+    name: str,
+    description: str,
+    difficulty: str,
+    max_steps: int,
+    data: List[Dict[str, Any]],
+    target_data: List[Dict[str, Any]],
+    target_source_rows: List[int],
+    schema: Dict[str, str],
+    dup_subset: List[str] | None,
+    date_columns: List[str],
+    phone_columns: List[str],
+    positive_columns: List[str],
+    outlier_ranges: Dict[str, tuple[int, int]],
+    score_weights: Dict[str, float],
+    score_components: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    if len(target_data) != len(target_source_rows):
+        raise ValueError("target_data and target_source_rows must have the same length")
+    return {
+        "name": name,
+        "description": description,
+        "difficulty": difficulty,
+        "max_steps": max_steps,
+        "data": data,
+        "target_data": target_data,
+        "target_source_rows": target_source_rows,
+        "schema": schema,
+        "dup_subset": dup_subset,
+        "date_columns": date_columns,
+        "phone_columns": phone_columns,
+        "positive_columns": positive_columns,
+        "outlier_ranges": outlier_ranges,
+        "score_weights": score_weights,
+        "score_components": score_components,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Customer records
+# ---------------------------------------------------------------------------
 
 TASK1_DATA = [
-    {"id": 1,  "name": "Alice Johnson",  "email": "alice@mail.com",  "age": 28.0, "city": "Mumbai"},
-    {"id": 2,  "name": "Bob Smith",      "email": "bob@mail.com",    "age": 34.0, "city": "Delhi"},
-    {"id": 3,  "name": "Carol White",    "email": "carol@mail.com",  "age": None, "city": "Bangalore"},
-    {"id": 4,  "name": "David Brown",    "email": None,              "age": 45.0, "city": "Chennai"},
-    {"id": 5,  "name": "Eva Green",      "email": "eva@mail.com",    "age": None, "city": "Pune"},
-    {"id": 6,  "name": "Frank Lee",      "email": "frank@mail.com",  "age": 31.0, "city": "Hyderabad"},
-    {"id": 7,  "name": "Grace Kim",      "email": "grace@mail.com",  "age": None, "city": "Kolkata"},
-    # --- duplicates of rows 1, 2, 3 ---
-    {"id": 8,  "name": "Alice Johnson",  "email": "alice@mail.com",  "age": 28.0, "city": "Mumbai"},
-    {"id": 9,  "name": "Bob Smith",      "email": "bob@mail.com",    "age": 34.0, "city": "Delhi"},
-    {"id": 10, "name": "Henry Park",     "email": None,              "age": 52.0, "city": "Jaipur"},
-    {"id": 11, "name": "Iris Wang",      "email": "iris@mail.com",   "age": None, "city": "Ahmedabad"},
-    {"id": 12, "name": "Carol White",    "email": "carol@mail.com",  "age": None, "city": "Bangalore"},
-    {"id": 13, "name": "Jack Davis",     "email": "jack@mail.com",   "age": 38.0, "city": "Surat"},
-    {"id": 14, "name": "Kelly Adams",    "email": "kelly@mail.com",  "age": None, "city": "Lucknow"},
-    {"id": 15, "name": "Leo Martinez",   "email": "leo@mail.com",    "age": 27.0, "city": "Kanpur"},
+    {"id": 1, "name": "Alice Johnson", "email": "alice@mail.com", "age": 28.0, "city": "Mumbai"},
+    {"id": 2, "name": "Bob Smith", "email": "bob@mail.com", "age": 34.0, "city": "Delhi"},
+    {"id": 3, "name": "Carol White", "email": "carol@mail.com", "age": None, "city": "Bangalore"},
+    {"id": 4, "name": "David Brown", "email": None, "age": 45.0, "city": "Chennai"},
+    {"id": 5, "name": "Eva Green", "email": "eva@mail.com", "age": None, "city": "Pune"},
+    {"id": 6, "name": "Frank Lee", "email": "frank@mail.com", "age": 31.0, "city": "Hyderabad"},
+    {"id": 7, "name": "Grace Kim", "email": "grace@mail.com", "age": None, "city": "Kolkata"},
+    {"id": 8, "name": "Alice Johnson", "email": "alice@mail.com", "age": 28.0, "city": "Mumbai"},
+    {"id": 9, "name": "Bob Smith", "email": "bob@mail.com", "age": 34.0, "city": "Delhi"},
+    {"id": 10, "name": "Henry Park", "email": None, "age": 52.0, "city": "Jaipur"},
+    {"id": 11, "name": "Iris Wang", "email": "iris@mail.com", "age": None, "city": "Ahmedabad"},
+    {"id": 12, "name": "Carol White", "email": "carol@mail.com", "age": None, "city": "Bangalore"},
+    {"id": 13, "name": "Jack Davis", "email": "jack@mail.com", "age": 38.0, "city": "Surat"},
+    {"id": 14, "name": "Kelly Adams", "email": "kelly@mail.com", "age": None, "city": "Lucknow"},
+    {"id": 15, "name": "Leo Martinez", "email": "leo@mail.com", "age": 27.0, "city": "Kanpur"},
 ]
 
-TASK1_CONFIG: Dict[str, Any] = {
-    "name": "Customer Records Deduplication & Imputation",
-    "description": (
-        "A CRM export contains 15 customer records with duplicate entries and missing fields. "
-        "Remove duplicate rows (identified by name + email + city) and fill in missing age and "
-        "email values so the dataset is clean and ready for downstream processing."
-    ),
-    "difficulty": "easy",
-    "max_steps": 10,
-    "data": TASK1_DATA,
-    "schema": {
-        "id": "int", "name": "str", "email": "str", "age": "float", "city": "str"
-    },
-    "dup_subset": ["name", "email", "city"],
-    "date_columns": [],
-    "phone_columns": [],
-    "positive_columns": [],
-    "outlier_ranges": {},
-    # Scoring weights (must sum to 1.0)
-    "score_weights": {
-        "duplicate_score": 0.40,
-        "age_missing_score": 0.30,
-        "email_missing_score": 0.30,
-    },
-}
+TASK1_TARGET_DATA = [
+    {"id": 1, "name": "Alice Johnson", "email": "alice@mail.com", "age": 28.0, "city": "Mumbai"},
+    {"id": 2, "name": "Bob Smith", "email": "bob@mail.com", "age": 34.0, "city": "Delhi"},
+    {"id": 3, "name": "Carol White", "email": "carol@mail.com", "age": 34.0, "city": "Bangalore"},
+    {"id": 4, "name": "David Brown", "email": "unknown@example.com", "age": 45.0, "city": "Chennai"},
+    {"id": 5, "name": "Eva Green", "email": "eva@mail.com", "age": 34.0, "city": "Pune"},
+    {"id": 6, "name": "Frank Lee", "email": "frank@mail.com", "age": 31.0, "city": "Hyderabad"},
+    {"id": 7, "name": "Grace Kim", "email": "grace@mail.com", "age": 34.0, "city": "Kolkata"},
+    {"id": 10, "name": "Henry Park", "email": "unknown@example.com", "age": 52.0, "city": "Jaipur"},
+    {"id": 11, "name": "Iris Wang", "email": "iris@mail.com", "age": 34.0, "city": "Ahmedabad"},
+    {"id": 13, "name": "Jack Davis", "email": "jack@mail.com", "age": 38.0, "city": "Surat"},
+    {"id": 14, "name": "Kelly Adams", "email": "kelly@mail.com", "age": 34.0, "city": "Lucknow"},
+    {"id": 15, "name": "Leo Martinez", "email": "leo@mail.com", "age": 27.0, "city": "Kanpur"},
+]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TASK 2 — Sales Data (Medium)
-# Issues: 4 bad date formats, 4 bad phone formats, 3 negative amounts, 3 missing regions
-# ─────────────────────────────────────────────────────────────────────────────
+TASK1_CONFIG = _build_task(
+    name="Customer Records Deduplication & Imputation",
+    description=(
+        "A CRM export contains duplicate customer rows and missing profile fields. "
+        "Remove duplicate customers keyed on name, email, and city, then recover "
+        "the missing age and email values without losing valid rows."
+    ),
+    difficulty="easy",
+    max_steps=10,
+    data=TASK1_DATA,
+    target_data=TASK1_TARGET_DATA,
+    target_source_rows=[0, 1, 2, 3, 4, 5, 6, 9, 10, 12, 13, 14],
+    schema={"id": "int", "name": "str", "email": "str", "age": "float", "city": "str"},
+    dup_subset=["name", "email", "city"],
+    date_columns=[],
+    phone_columns=[],
+    positive_columns=[],
+    outlier_ranges={},
+    score_weights={
+        "row_fidelity_score": 0.40,
+        "age_match_score": 0.30,
+        "email_match_score": 0.30,
+    },
+    score_components={
+        "age_match_score": {"type": "columns", "columns": ["age"]},
+        "email_match_score": {"type": "columns", "columns": ["email"]},
+    },
+)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: Sales data
+# ---------------------------------------------------------------------------
 
 TASK2_DATA = [
-    {"order_id": "ORD001", "date": "2024-01-15",     "amount": 1500.00, "phone": "+91-98765-43210", "region": "North", "product": "Laptop"},
-    {"order_id": "ORD002", "date": "15/02/2024",     "amount":  850.00, "phone": "9876543211",      "region": "South", "product": "Mouse"},
-    {"order_id": "ORD003", "date": "2024-03-20",     "amount": -200.00, "phone": "+91-87654-32109", "region": None,    "product": "Keyboard"},
-    {"order_id": "ORD004", "date": "April 5, 2024",  "amount": 2300.00, "phone": "087654-32108",    "region": "East",  "product": "Monitor"},
-    {"order_id": "ORD005", "date": "2024-01-08",     "amount":  450.00, "phone": "+91-76543-21098", "region": "West",  "product": "Headphones"},
-    {"order_id": "ORD006", "date": "22-06-2024",     "amount": 3200.00, "phone": "7654321097",      "region": None,    "product": "Tablet"},
-    {"order_id": "ORD007", "date": "2024-07-11",     "amount": -150.00, "phone": "+91-65432-10987", "region": "North", "product": "Cable"},
-    {"order_id": "ORD008", "date": "08/30/2024",     "amount": 1800.00, "phone": "+91-54321-09876", "region": "South", "product": "Webcam"},
-    {"order_id": "ORD009", "date": "2024-09-14",     "amount":  950.00, "phone": "054321-09875",    "region": "East",  "product": "Speaker"},
-    {"order_id": "ORD010", "date": "2024-10-03",     "amount": -500.00, "phone": "+91-43210-98764", "region": None,    "product": "Printer"},
-    {"order_id": "ORD011", "date": "2024-11-19",     "amount": 1100.00, "phone": "+91-32109-87653", "region": "West",  "product": "Router"},
-    {"order_id": "ORD012", "date": "Dec 7, 2024",    "amount":  670.00, "phone": "+91-21098-76542", "region": "North", "product": "Hub"},
-    {"order_id": "ORD013", "date": "2024-12-22",     "amount": 4200.00, "phone": "+91-10987-65431", "region": "South", "product": "SSD"},
-    {"order_id": "ORD014", "date": "2025-01-05",     "amount":  320.00, "phone": "+91-09876-54320", "region": "East",  "product": "Cable"},
-    {"order_id": "ORD015", "date": "2025-02-14",     "amount": 2750.00, "phone": "+91-98765-43219", "region": "West",  "product": "GPU"},
+    {"order_id": "ORD001", "date": "2024-01-15", "amount": 1500.00, "phone": "+91-98765-43210", "region": "North", "product": "Laptop"},
+    {"order_id": "ORD002", "date": "15/02/2024", "amount": 850.00, "phone": "9876543211", "region": "South", "product": "Mouse"},
+    {"order_id": "ORD003", "date": "2024-03-20", "amount": -200.00, "phone": "+91-87654-32109", "region": None, "product": "Keyboard"},
+    {"order_id": "ORD004", "date": "April 5, 2024", "amount": 2300.00, "phone": "087654-32108", "region": "East", "product": "Monitor"},
+    {"order_id": "ORD005", "date": "2024-01-08", "amount": 450.00, "phone": "+91-76543-21098", "region": "West", "product": "Headphones"},
+    {"order_id": "ORD006", "date": "22-06-2024", "amount": 3200.00, "phone": "7654321097", "region": None, "product": "Tablet"},
+    {"order_id": "ORD007", "date": "2024-07-11", "amount": -150.00, "phone": "+91-65432-10987", "region": "North", "product": "Cable"},
+    {"order_id": "ORD008", "date": "08/30/2024", "amount": 1800.00, "phone": "+91-54321-09876", "region": "South", "product": "Webcam"},
+    {"order_id": "ORD009", "date": "2024-09-14", "amount": 950.00, "phone": "054321-09875", "region": "East", "product": "Speaker"},
+    {"order_id": "ORD010", "date": "2024-10-03", "amount": -500.00, "phone": "+91-43210-98764", "region": None, "product": "Printer"},
+    {"order_id": "ORD011", "date": "2024-11-19", "amount": 1100.00, "phone": "+91-32109-87653", "region": "West", "product": "Router"},
+    {"order_id": "ORD012", "date": "Dec 7, 2024", "amount": 670.00, "phone": "+91-21098-76542", "region": "North", "product": "Hub"},
+    {"order_id": "ORD013", "date": "2024-12-22", "amount": 4200.00, "phone": "+91-10987-65431", "region": "South", "product": "SSD"},
+    {"order_id": "ORD014", "date": "2025-01-05", "amount": 320.00, "phone": "+91-09876-54320", "region": "East", "product": "Cable"},
+    {"order_id": "ORD015", "date": "2025-02-14", "amount": 2750.00, "phone": "+91-98765-43219", "region": "West", "product": "GPU"},
 ]
 
-TASK2_CONFIG: Dict[str, Any] = {
-    "name": "Sales Data Standardisation & Cleansing",
-    "description": (
-        "An e-commerce export contains 15 sales records with mixed date formats, malformed Indian phone "
-        "numbers, data-entry errors (negative revenue), and missing region labels. "
-        "Standardise all dates to ISO 8601 (YYYY-MM-DD), normalise phones to +91-XXXXX-XXXXX, "
-        "remove negative transactions, and fill missing region values."
-    ),
-    "difficulty": "medium",
-    "max_steps": 15,
-    "data": TASK2_DATA,
-    "schema": {
-        "order_id": "str", "date": "str", "amount": "float",
-        "phone": "str", "region": "str", "product": "str"
-    },
-    "dup_subset": None,
-    "date_columns": ["date"],
-    "phone_columns": ["phone"],
-    "positive_columns": ["amount"],
-    "outlier_ranges": {},
-    "score_weights": {
-        "date_format_score": 0.25,
-        "phone_format_score": 0.25,
-        "negative_amount_score": 0.25,
-        "region_missing_score": 0.25,
-    },
-}
+TASK2_TARGET_DATA = [
+    {"order_id": "ORD001", "date": "2024-01-15", "amount": 1500.00, "phone": "+91-98765-43210", "region": "North", "product": "Laptop"},
+    {"order_id": "ORD002", "date": "2024-02-15", "amount": 850.00, "phone": "+91-98765-43211", "region": "South", "product": "Mouse"},
+    {"order_id": "ORD004", "date": "2024-04-05", "amount": 2300.00, "phone": "+91-87654-32108", "region": "East", "product": "Monitor"},
+    {"order_id": "ORD005", "date": "2024-01-08", "amount": 450.00, "phone": "+91-76543-21098", "region": "West", "product": "Headphones"},
+    {"order_id": "ORD006", "date": "2024-06-22", "amount": 3200.00, "phone": "+91-76543-21097", "region": "East", "product": "Tablet"},
+    {"order_id": "ORD008", "date": "2024-08-30", "amount": 1800.00, "phone": "+91-54321-09876", "region": "South", "product": "Webcam"},
+    {"order_id": "ORD009", "date": "2024-09-14", "amount": 950.00, "phone": "+91-54321-09875", "region": "East", "product": "Speaker"},
+    {"order_id": "ORD011", "date": "2024-11-19", "amount": 1100.00, "phone": "+91-32109-87653", "region": "West", "product": "Router"},
+    {"order_id": "ORD012", "date": "2024-12-07", "amount": 670.00, "phone": "+91-21098-76542", "region": "North", "product": "Hub"},
+    {"order_id": "ORD013", "date": "2024-12-22", "amount": 4200.00, "phone": "+91-10987-65431", "region": "South", "product": "SSD"},
+    {"order_id": "ORD014", "date": "2025-01-05", "amount": 320.00, "phone": "+91-09876-54320", "region": "East", "product": "Cable"},
+    {"order_id": "ORD015", "date": "2025-02-14", "amount": 2750.00, "phone": "+91-98765-43219", "region": "West", "product": "GPU"},
+]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TASK 3 — Healthcare Records (Hard)
-# Issues: 2 duplicate patient_ids, 6 missing values across key columns,
-#         3 date format inconsistencies (dob + last_visit),
-#         3 physiologically impossible vitals (outliers),
-#         2 negative glucose values (impossible),
-#         6 malformed emergency contact phone numbers
-# ─────────────────────────────────────────────────────────────────────────────
+TASK2_CONFIG = _build_task(
+    name="Sales Data Standardization and Cleansing",
+    description=(
+        "An ecommerce export mixes date formats, contains malformed Indian phone "
+        "numbers, keeps a few invalid negative transactions, and leaves one "
+        "missing region label. Normalize the format problems and remove only the "
+        "rows that truly should not survive."
+    ),
+    difficulty="medium",
+    max_steps=15,
+    data=TASK2_DATA,
+    target_data=TASK2_TARGET_DATA,
+    target_source_rows=[0, 1, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14],
+    schema={
+        "order_id": "str",
+        "date": "str",
+        "amount": "float",
+        "phone": "str",
+        "region": "str",
+        "product": "str",
+    },
+    dup_subset=None,
+    date_columns=["date"],
+    phone_columns=["phone"],
+    positive_columns=["amount"],
+    outlier_ranges={},
+    score_weights={
+        "row_fidelity_score": 0.35,
+        "date_match_score": 0.20,
+        "phone_match_score": 0.20,
+        "amount_match_score": 0.15,
+        "region_match_score": 0.10,
+    },
+    score_components={
+        "date_match_score": {"type": "columns", "columns": ["date"]},
+        "phone_match_score": {"type": "columns", "columns": ["phone"]},
+        "amount_match_score": {"type": "removed_rows", "source_rows": [2, 6, 9]},
+        "region_match_score": {"type": "columns", "columns": ["region"]},
+    },
+)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: Chained healthcare + billing cleanup
+# ---------------------------------------------------------------------------
 
 TASK3_DATA = [
-    {"patient_id": "P001", "name": "Arjun Mehta",   "dob": "1985-06-12",  "gender": "M", "bp_systolic": 120, "bp_diastolic": 80,  "glucose": 95.0,   "diagnosis": "Hypertension", "medication": "Amlodipine", "emergency_contact": "+91-99887-77661", "last_visit": "2024-01-10"},
-    {"patient_id": "P002", "name": "Priya Sharma",  "dob": "12/03/1992",  "gender": "F", "bp_systolic": 115, "bp_diastolic": 75,  "glucose": 88.0,   "diagnosis": "Diabetes",     "medication": "Metformin",  "emergency_contact": "9988777662",      "last_visit": "2024-02-14"},
-    {"patient_id": "P003", "name": "Rohan Gupta",   "dob": "1978-11-25",  "gender": "M", "bp_systolic": 500, "bp_diastolic": 90,  "glucose": 102.0,  "diagnosis": "Asthma",       "medication": "Salbutamol", "emergency_contact": "+91-88776-66553", "last_visit": "March 5, 2024"},
-    {"patient_id": "P004", "name": "Divya Nair",    "dob": "1995-04-08",  "gender": "F", "bp_systolic": 118, "bp_diastolic": 78,  "glucose": 5000.0, "diagnosis": None,           "medication": "Metoprolol", "emergency_contact": "088776-66554",    "last_visit": "2024-04-02"},
-    {"patient_id": "P005", "name": "Karan Singh",   "dob": "07-09-1988",  "gender": "M", "bp_systolic": 130, "bp_diastolic": 85,  "glucose": 110.0,  "diagnosis": "Hypertension", "medication": None,         "emergency_contact": "+91-77665-55445", "last_visit": "2024-05-19"},
-    {"patient_id": "P006", "name": "Sneha Reddy",   "dob": "1990-02-17",  "gender": "F", "bp_systolic": 112, "bp_diastolic": 70,  "glucose": 92.0,   "diagnosis": "Thyroid",      "medication": "Levothyrox", "emergency_contact": "7766555446",      "last_visit": "2024-06-11"},
-    {"patient_id": "P007", "name": "Vikram Iyer",   "dob": "1982-08-30",  "gender": "M", "bp_systolic": 140, "bp_diastolic": 300, "glucose": 98.0,   "diagnosis": "Diabetes",     "medication": "Insulin",    "emergency_contact": "+91-66554-44337", "last_visit": "2024-07-08"},
-    {"patient_id": "P008", "name": "Anita Joshi",   "dob": "1975-12-05",  "gender": "F", "bp_systolic": 125, "bp_diastolic": 82,  "glucose": -45.0,  "diagnosis": "Hypertension", "medication": "Atenolol",   "emergency_contact": "+91-55443-33228", "last_visit": "2024-08-22"},
-    {"patient_id": "P009", "name": "Suresh Pillai", "dob": "June 20 1993","gender": "M", "bp_systolic": 118, "bp_diastolic": 76,  "glucose": 105.0,  "diagnosis": None,           "medication": "Aspirin",    "emergency_contact": "5544333229",      "last_visit": "2024-09-15"},
-    {"patient_id": "P010", "name": "Meena Patel",   "dob": "1987-03-14",  "gender": "F", "bp_systolic": 110, "bp_diastolic": 68,  "glucose": 87.0,   "diagnosis": "Anaemia",      "medication": "Iron",       "emergency_contact": "+91-44332-22110", "last_visit": "2024-10-03"},
-    # Duplicates of P001 and P003
-    {"patient_id": "P001", "name": "Arjun Mehta",   "dob": "1985-06-12",  "gender": "M", "bp_systolic": 120, "bp_diastolic": 80,  "glucose": 95.0,   "diagnosis": "Hypertension", "medication": "Amlodipine", "emergency_contact": "+91-99887-77661", "last_visit": "2024-01-10"},
-    {"patient_id": "P011", "name": "Rahul Verma",   "dob": "1991-07-22",  "gender": "M", "bp_systolic": 122, "bp_diastolic": 79,  "glucose": None,   "diagnosis": "Migraine",     "medication": "Sumatriptan","emergency_contact": "+91-33221-11001", "last_visit": "2024-11-17"},
-    {"patient_id": "P012", "name": "Lakshmi Das",   "dob": "1969-09-01",  "gender": "F", "bp_systolic": 145, "bp_diastolic": 92,  "glucose": 130.0,  "diagnosis": "Diabetes",     "medication": "Glipizide",  "emergency_contact": "033221-11002",    "last_visit": "2024-12-05"},
-    {"patient_id": "P013", "name": "Aditya Roy",    "dob": "2000-01-15",  "gender": "M", "bp_systolic": 108, "bp_diastolic": 65,  "glucose": 80.0,   "diagnosis": None,           "medication": None,         "emergency_contact": "+91-22110-00193", "last_visit": "2025-01-09"},
-    {"patient_id": "P003", "name": "Rohan Gupta",   "dob": "1978-11-25",  "gender": "M", "bp_systolic": 500, "bp_diastolic": 90,  "glucose": 102.0,  "diagnosis": "Asthma",       "medication": "Salbutamol", "emergency_contact": "+91-88776-66553", "last_visit": "March 5, 2024"},
-    {"patient_id": "P014", "name": "Pooja Mishra",  "dob": "1996-05-28",  "gender": "F", "bp_systolic": 116, "bp_diastolic": 74,  "glucose": 91.0,   "diagnosis": "PCOS",         "medication": "Metformin",  "emergency_contact": "+91-11009-98884", "last_visit": "2025-02-18"},
-    {"patient_id": "P015", "name": "Nitin Kumar",   "dob": "1983-10-09",  "gender": "M", "bp_systolic": 135, "bp_diastolic": 88,  "glucose": -20.0,  "diagnosis": "Hypertension", "medication": "Losartan",   "emergency_contact": "+91-90908-80776", "last_visit": "2025-03-01"},
-    {"patient_id": "P016", "name": "Swati Ghosh",   "dob": "1979-02-14",  "gender": "F", "bp_systolic": 128, "bp_diastolic": 84,  "glucose": 99.0,   "diagnosis": "Thyroid",      "medication": None,         "emergency_contact": "9090880777",      "last_visit": "2025-03-12"},
-    {"patient_id": "P017", "name": "Rajesh Bansal", "dob": "1965-12-30",  "gender": "M", "bp_systolic": 160, "bp_diastolic": 100, "glucose": 145.0,  "diagnosis": "Diabetes",     "medication": "Insulin",    "emergency_contact": "+91-80807-70668", "last_visit": "2025-03-20"},
-    {"patient_id": "P018", "name": "Kavita Rao",    "dob": "1988-08-05",  "gender": "F", "bp_systolic": 119, "bp_diastolic": 77,  "glucose": 94.0,   "diagnosis": "Anaemia",      "medication": "Iron",       "emergency_contact": "+91-70706-60559", "last_visit": "2025-03-25"},
+    {
+        "patient_name": "Asha Rao",
+        "dob": "April 12, 1988",
+        "visit_date": "14 Jan 2025",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "9876500001",
+        "glucose": 95.0,
+        "bp_systolic": 128,
+        "bp_diastolic": 82,
+    },
+    {
+        "patient_name": "Daniel Cruz",
+        "dob": "1979/11/03",
+        "visit_date": "2025-01-14",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "+91-98765-00002",
+        "glucose": 110.0,
+        "bp_systolic": 152,
+        "bp_diastolic": 94,
+    },
+    {
+        "patient_name": "Eleanor Hall",
+        "dob": "1991-08-19",
+        "visit_date": "February 2, 2025",
+        "country": "United Kingdom",
+        "currency": None,
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "098765-00003",
+        "glucose": 86.0,
+        "bp_systolic": 121,
+        "bp_diastolic": 79,
+    },
+    {
+        "patient_name": "Farah Khan",
+        "dob": "07 Mar 1986",
+        "visit_date": "2025/02/02",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Hypothyroidism",
+        "medication": None,
+        "emergency_contact": "+91-98765-00004",
+        "glucose": 72.0,
+        "bp_systolic": 118,
+        "bp_diastolic": 76,
+    },
+    {
+        "patient_name": "Gabriel Stone",
+        "dob": "1984-12-01",
+        "visit_date": "03-03-2025",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "9876500005",
+        "glucose": -18.0,
+        "bp_systolic": 205,
+        "bp_diastolic": 88,
+    },
+    {
+        "patient_name": "Hina Patel",
+        "dob": "May 21, 1993",
+        "visit_date": "2025-03-03",
+        "country": "India",
+        "currency": None,
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00006",
+        "glucose": 99.0,
+        "bp_systolic": 115,
+        "bp_diastolic": 74,
+    },
+    {
+        "patient_name": "Isaac Reed",
+        "dob": "1975-09-30",
+        "visit_date": "2025/04/10",
+        "country": "United Kingdom",
+        "currency": "GBP",
+        "diagnosis": "Hypothyroidism",
+        "medication": "Levothyroxine",
+        "emergency_contact": "+91-98765-00007",
+        "glucose": 845.0,
+        "bp_systolic": 119,
+        "bp_diastolic": 75,
+    },
+    {
+        "patient_name": "Jia Li",
+        "dob": "11 Jun 1990",
+        "visit_date": "10 Apr 2025",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Hypertension",
+        "medication": None,
+        "emergency_contact": "98765 00008",
+        "glucose": 130.0,
+        "bp_systolic": 117,
+        "bp_diastolic": 132,
+    },
+    {
+        "patient_name": "Kabir Shah",
+        "dob": "1988-01-17",
+        "visit_date": "2025-05-22",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00009",
+        "glucose": 102.0,
+        "bp_systolic": 124,
+        "bp_diastolic": 80,
+    },
+    {
+        "patient_name": "Lena Brooks",
+        "dob": "1982.07.15",
+        "visit_date": "22 May 2025",
+        "country": "United Kingdom",
+        "currency": None,
+        "diagnosis": "Hypothyroidism",
+        "medication": "Levothyroxine",
+        "emergency_contact": "+91-98765-00010",
+        "glucose": 92.0,
+        "bp_systolic": 111,
+        "bp_diastolic": 72,
+    },
+    {
+        "patient_name": "Meera Nair",
+        "dob": "1994-10-09",
+        "visit_date": "2025-06-18",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Diabetes",
+        "medication": None,
+        "emergency_contact": "09876500011",
+        "glucose": 88.0,
+        "bp_systolic": 126,
+        "bp_diastolic": 83,
+    },
+    {
+        "patient_name": "Noah Price",
+        "dob": "December 28, 1978",
+        "visit_date": "2025-06-18",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "+91-98765-00012",
+        "glucose": 105.0,
+        "bp_systolic": 58,
+        "bp_diastolic": 78,
+    },
+    {
+        "patient_name": "Asha Rao",
+        "dob": "1988-04-12",
+        "visit_date": "2025/01/14",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "9876500001",
+        "glucose": 95.0,
+        "bp_systolic": 128,
+        "bp_diastolic": 82,
+    },
+    {
+        "patient_name": "Farah Khan",
+        "dob": "1986-03-07",
+        "visit_date": "02 Feb 2025",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Hypothyroidism",
+        "medication": None,
+        "emergency_contact": "+91-98765-00004",
+        "glucose": 72.0,
+        "bp_systolic": 118,
+        "bp_diastolic": 76,
+    },
+    {
+        "patient_name": "Jia Li",
+        "dob": "1990-06-11",
+        "visit_date": "2025-04-10",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Hypertension",
+        "medication": None,
+        "emergency_contact": "98765 00008",
+        "glucose": 130.0,
+        "bp_systolic": 117,
+        "bp_diastolic": 132,
+    },
+    {
+        "patient_name": "Lena Brooks",
+        "dob": "1982-07-15",
+        "visit_date": "2025/05/22",
+        "country": "United Kingdom",
+        "currency": None,
+        "diagnosis": "Hypothyroidism",
+        "medication": "Levothyroxine",
+        "emergency_contact": "+91-98765-00010",
+        "glucose": 92.0,
+        "bp_systolic": 111,
+        "bp_diastolic": 72,
+    },
 ]
 
-TASK3_CONFIG: Dict[str, Any] = {
-    "name": "Healthcare Records Full Quality Pipeline",
-    "description": (
-        "A hospital export of 20 patient records contains a range of quality issues: duplicate patient IDs, "
-        "missing diagnoses and medications, inconsistent date formats in dob and last_visit fields, "
-        "physiologically impossible vital signs (bp_systolic=500, bp_diastolic=300, negative glucose), "
-        "and malformed emergency contact phone numbers. Apply the full data-quality pipeline to bring all "
-        "records to clinical standard."
+TASK3_TARGET_DATA = [
+    {
+        "patient_name": "Asha Rao",
+        "dob": "1988-04-12",
+        "visit_date": "2025-01-14",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00001",
+        "glucose": 95.0,
+        "bp_systolic": 128,
+        "bp_diastolic": 82,
+    },
+    {
+        "patient_name": "Daniel Cruz",
+        "dob": "1979-11-03",
+        "visit_date": "2025-01-14",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "+91-98765-00002",
+        "glucose": 110.0,
+        "bp_systolic": 152,
+        "bp_diastolic": 94,
+    },
+    {
+        "patient_name": "Eleanor Hall",
+        "dob": "1991-08-19",
+        "visit_date": "2025-02-02",
+        "country": "United Kingdom",
+        "currency": "GBP",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00003",
+        "glucose": 86.0,
+        "bp_systolic": 121,
+        "bp_diastolic": 79,
+    },
+    {
+        "patient_name": "Farah Khan",
+        "dob": "1986-03-07",
+        "visit_date": "2025-02-02",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Hypothyroidism",
+        "medication": "Levothyroxine",
+        "emergency_contact": "+91-98765-00004",
+        "glucose": 72.0,
+        "bp_systolic": 118,
+        "bp_diastolic": 76,
+    },
+    {
+        "patient_name": "Gabriel Stone",
+        "dob": "1984-12-01",
+        "visit_date": "2025-03-03",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "+91-98765-00005",
+        "glucose": 50.0,
+        "bp_systolic": 200,
+        "bp_diastolic": 88,
+    },
+    {
+        "patient_name": "Hina Patel",
+        "dob": "1993-05-21",
+        "visit_date": "2025-03-03",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00006",
+        "glucose": 99.0,
+        "bp_systolic": 115,
+        "bp_diastolic": 74,
+    },
+    {
+        "patient_name": "Isaac Reed",
+        "dob": "1975-09-30",
+        "visit_date": "2025-04-10",
+        "country": "United Kingdom",
+        "currency": "GBP",
+        "diagnosis": "Hypothyroidism",
+        "medication": "Levothyroxine",
+        "emergency_contact": "+91-98765-00007",
+        "glucose": 500.0,
+        "bp_systolic": 119,
+        "bp_diastolic": 75,
+    },
+    {
+        "patient_name": "Jia Li",
+        "dob": "1990-06-11",
+        "visit_date": "2025-04-10",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "+91-98765-00008",
+        "glucose": 130.0,
+        "bp_systolic": 117,
+        "bp_diastolic": 130,
+    },
+    {
+        "patient_name": "Kabir Shah",
+        "dob": "1988-01-17",
+        "visit_date": "2025-05-22",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00009",
+        "glucose": 102.0,
+        "bp_systolic": 124,
+        "bp_diastolic": 80,
+    },
+    {
+        "patient_name": "Lena Brooks",
+        "dob": "1982-07-15",
+        "visit_date": "2025-05-22",
+        "country": "United Kingdom",
+        "currency": "GBP",
+        "diagnosis": "Hypothyroidism",
+        "medication": "Levothyroxine",
+        "emergency_contact": "+91-98765-00010",
+        "glucose": 92.0,
+        "bp_systolic": 111,
+        "bp_diastolic": 72,
+    },
+    {
+        "patient_name": "Meera Nair",
+        "dob": "1994-10-09",
+        "visit_date": "2025-06-18",
+        "country": "India",
+        "currency": "INR",
+        "diagnosis": "Diabetes",
+        "medication": "Metformin",
+        "emergency_contact": "+91-98765-00011",
+        "glucose": 88.0,
+        "bp_systolic": 126,
+        "bp_diastolic": 83,
+    },
+    {
+        "patient_name": "Noah Price",
+        "dob": "1978-12-28",
+        "visit_date": "2025-06-18",
+        "country": "United States",
+        "currency": "USD",
+        "diagnosis": "Hypertension",
+        "medication": "Amlodipine",
+        "emergency_contact": "+91-98765-00012",
+        "glucose": 105.0,
+        "bp_systolic": 60,
+        "bp_diastolic": 78,
+    },
+]
+
+TASK3_CONFIG = _build_task(
+    name="Healthcare Billing Reconciliation and Quality Repair",
+    description=(
+        "A hospital revenue export mixes patient-demographic cleanup with billing "
+        "normalization. Some duplicates only become visible after date repair, "
+        "several currencies must be inferred from country, several medications "
+        "must be inferred from diagnosis, and the vital-sign columns contain both "
+        "impossible negatives and dangerous outliers."
     ),
-    "difficulty": "hard",
-    "max_steps": 25,
-    "data": TASK3_DATA,
-    "schema": {
-        "patient_id": "str", "name": "str", "dob": "str", "gender": "str",
-        "bp_systolic": "int", "bp_diastolic": "int", "glucose": "float",
-        "diagnosis": "str", "medication": "str", "emergency_contact": "str",
-        "last_visit": "str",
+    difficulty="hard",
+    max_steps=25,
+    data=TASK3_DATA,
+    target_data=TASK3_TARGET_DATA,
+    target_source_rows=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    schema={
+        "patient_name": "str",
+        "dob": "str",
+        "visit_date": "str",
+        "country": "str",
+        "currency": "str",
+        "diagnosis": "str",
+        "medication": "str",
+        "emergency_contact": "str",
+        "glucose": "float",
+        "bp_systolic": "int",
+        "bp_diastolic": "int",
     },
-    "dup_subset": ["patient_id"],
-    "date_columns": ["dob", "last_visit"],
-    "phone_columns": ["emergency_contact"],
-    "positive_columns": ["glucose"],
-    "outlier_ranges": {
-        "bp_systolic":  (60, 200),
+    dup_subset=["patient_name", "dob", "visit_date"],
+    date_columns=["dob", "visit_date"],
+    phone_columns=["emergency_contact"],
+    positive_columns=["glucose"],
+    outlier_ranges={
+        "glucose": (50, 500),
+        "bp_systolic": (60, 200),
         "bp_diastolic": (40, 130),
-        "glucose":      (50, 500),
     },
-    "score_weights": {
-        "duplicate_score":      0.1667,
-        "missing_value_score":  0.1667,
-        "date_format_score":    0.1667,
-        "phone_format_score":   0.1667,
-        "outlier_score":        0.1666,
-        "negative_vital_score": 0.1666,
+    score_weights={
+        "row_fidelity_score": 0.35,
+        "date_match_score": 0.15,
+        "phone_match_score": 0.10,
+        "currency_match_score": 0.15,
+        "medication_match_score": 0.10,
+        "vitals_match_score": 0.15,
     },
-}
+    score_components={
+        "date_match_score": {"type": "columns", "columns": ["dob", "visit_date"]},
+        "phone_match_score": {"type": "columns", "columns": ["emergency_contact"]},
+        "currency_match_score": {"type": "columns", "columns": ["currency"]},
+        "medication_match_score": {"type": "columns", "columns": ["medication"]},
+        "vitals_match_score": {"type": "columns", "columns": ["glucose", "bp_systolic", "bp_diastolic"]},
+    },
+)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Master registry
-# ─────────────────────────────────────────────────────────────────────────────
 
-TASKS: Dict[str, Dict] = {
-    "task1_easy":   TASK1_CONFIG,
+TASKS: Dict[str, Dict[str, Any]] = {
+    "task1_easy": TASK1_CONFIG,
     "task2_medium": TASK2_CONFIG,
-    "task3_hard":   TASK3_CONFIG,
+    "task3_hard": TASK3_CONFIG,
 }

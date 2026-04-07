@@ -1,299 +1,267 @@
-# DataQualityEnv 🧹
+﻿# DataQualityEnv
 
-> *An OpenEnv reinforcement learning environment for training AI agents to clean real-world tabular data — across CRM, sales, and clinical domains.*
+An OpenEnv-compatible benchmark for agentic data cleaning on realistic tabular workflows.
 
-[![OpenEnv](https://img.shields.io/badge/OpenEnv-compliant-4ade80?style=flat-square)](https://openenv.dev)
-[![HF Space](https://img.shields.io/badge/HuggingFace-Space%20Live-f59e0b?style=flat-square&logo=huggingface)](https://huggingface.co/spaces/Vivek567/data-quality-env)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-[![Tasks](https://img.shields.io/badge/Tasks-3%20(Easy%20→%20Hard)-c084fc?style=flat-square)]()
+`DataQualityEnv` asks an agent to repair messy tables through a standard `reset()` / `step()` / `state()` loop. The benchmark covers CRM cleanup, sales-data normalization, and a chained healthcare-billing task that requires ordering, context, and precision rather than brute-force row deletion.
 
----
+## Why This Benchmark Matters
 
-## Why This Matters
+Data cleaning is one of the highest-cost parts of modern analytics and ML work. Teams routinely lose days to duplicate records, broken dates, malformed phones, missing labels, and invalid numeric values before any model training even starts.
 
-**Bad data is the silent killer of every AI pipeline.**
+This environment is built to evaluate whether an agent can:
+- preserve valid data while fixing bad data
+- choose the right operation for the right column
+- plan multi-step cleanup sequences across a trajectory
+- avoid gaming the score by deleting rows
 
-- IBM estimates poor data quality costs the U.S. economy **$3.1 trillion per year**.
-- A 2020 study in *Nature* found that **~50% of clinical trial failures** are attributable to data quality problems — not model failures.
-- Data scientists report spending **60–80% of project time** on data cleaning — time not spent building models.
+That makes it useful for agent evaluation, RL training, and tool-use benchmarking in a domain people actually care about.
 
-Despite this, there is **almost no RL benchmark** for data cleaning. Existing environments focus on games, code execution, or web navigation. `DataQualityEnv` fills a real gap: a reproducible, programmatically gradable environment where agents learn a generalisable cleaning policy applicable to the messiest real-world datasets.
+## What Makes It Hard To Game
 
-**This environment is immediately useful for:**
-- Evaluating LLM agents on real data engineering tasks
-- Training autonomous data-cleaning pipelines that replace manual ETL fixes
-- Benchmarking tool-use and sequential decision making in a structured, verifiable domain
+The grader does not reward "fewer visible issues" by itself.
 
----
+It uses three guardrails:
+- Hidden target outputs: each task has an internal target dataframe that is never exposed to the agent.
+- Stable hidden row ids: every source row gets an internal `__row_id__` at `reset()` time, so grading matches rows by identity instead of dataframe index.
+- Row-fidelity cap: if precision or recall drops below the threshold, the total score is capped by row fidelity. Deleting lots of rows tanks the score.
 
-## Environment Overview
+The result is simple: a lazy strategy like `remove_negative` or `clip_outliers` on the wrong column cannot win by shrinking the table.
 
+## Environment Mechanics
+
+The agent sees:
+- the current table
+- the schema
+- a human-readable list of remaining quality issues
+- a task-level `quality_score`
+- the available operations
+
+The environment supports these operations:
+- `remove_duplicates`
+- `fill_missing`
+- `standardize_date`
+- `standardize_phone`
+- `remove_negative`
+- `clip_outliers`
+- `done`
+
+Reward is dense:
+
+```text
+reward(t) = exposed_quality_score(t) - exposed_quality_score(t-1) - 0.01
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        DataQualityEnv                           │
-│                                                                 │
-│  ┌──────────┐   action    ┌──────────────┐   reward            │
-│  │          │ ──────────► │              │ ──────────► agent   │
-│  │  Agent   │             │  DataFrame   │                     │
-│  │  (LLM)   │ ◄────────── │  + Grader    │ ◄────────── step()  │
-│  │          │  observation│              │                     │
-│  └──────────┘             └──────────────┘                     │
-│                                                                 │
-│  6 operations: remove_duplicates · fill_missing                 │
-│                standardize_date  · standardize_phone            │
-│                remove_negative   · clip_outliers                │
-└─────────────────────────────────────────────────────────────────┘
-```
 
-The agent receives a **dirty tabular dataset** and must apply a sequence of transformation operations to maximise a quality score in **[0.0, 1.0]**. Rewards are dense — the agent gets signal at every step, not just at termination.
-
----
+Raw grader totals are computed in `[0.0, 1.0]`, but every exposed task total is forced into the strict open interval `(0.0001, 0.9999)`. That rule is applied consistently in observations, state, step info, reward breakdown totals, and the saved baseline results.
 
 ## Tasks
 
-Three tasks cover three distinct real-world domains with increasing complexity:
+| Task | Domain | Difficulty | Input Rows | Core Challenge |
+| --- | --- | --- | ---: | --- |
+| `task1_easy` | CRM records | Easy | 15 | Deduplicate customer rows, then fill missing age and email values without losing valid rows |
+| `task2_medium` | Sales operations | Medium | 15 | Standardize dates and phones, remove only invalid negative transactions, and fill missing regions |
+| `task3_hard` | Healthcare billing | Hard | 16 | Chained reasoning across date normalization, deduplication, contextual mapping, phone cleanup, and vital-sign repair |
 
-| ID | Domain | Difficulty | Max Steps | Quality Issues Present |
-|----|--------|-----------|-----------|----------------------|
-| `task1_easy` | **CRM / Customer Records** | 🟢 Easy | 10 | Duplicate rows, missing age, missing email |
-| `task2_medium` | **E-commerce / Sales Data** | 🟡 Medium | 15 | Mixed date formats, malformed phone numbers, negative revenue, missing region |
-| `task3_hard` | **Clinical / Healthcare Records** | 🔴 Hard | 25 | All above + physiologically impossible vitals, duplicate patient IDs, missing diagnoses, malformed emergency contacts |
+### Task 1: Customer Records Deduplication and Imputation
 
-### Task 1 — Customer Records (Easy)
+The table contains duplicate customers plus missing `age` and `email` values. A strong agent should remove duplicates first, then restore the missing fields.
 
-15 CRM records. Issues: 3 duplicate rows (name+email+city key), 6 missing ages, 2 missing emails. A capable agent solves this in 3 steps.
+### Task 2: Sales Data Standardization and Cleansing
 
-### Task 2 — Sales Data (Medium)
+The table mixes ISO and non-ISO dates, malformed Indian phone numbers, negative transaction rows that should not survive, and missing `region` values. The benchmark punishes accidental data loss, so the agent has to fix the formatting issues while preserving legitimate rows.
 
-15 e-commerce orders. Issues: 5 non-ISO dates (e.g. `"April 5, 2024"`, `"22-06-2024"`), 4 malformed Indian phone numbers, 3 negative transaction amounts, 3 missing regional labels. Requires 4–5 operations to fully resolve.
+### Task 3: Healthcare Billing Reconciliation and Quality Repair
 
-### Task 3 — Healthcare Records (Hard)
+This task is intentionally harder than the first two.
 
-20 patient records. Issues: 2 duplicate patient IDs, 3 missing diagnoses, 3 missing medications, 3 non-ISO dates across 2 columns (`dob`, `last_visit`), 2 physiologically impossible `bp_systolic` values (>200 mmHg), 1 impossible `bp_diastolic` (>130 mmHg), 2 negative `glucose` readings, 1 missing glucose, and 6 malformed `emergency_contact` phone numbers. **This task is designed to challenge frontier models** — correctly handling all six quality dimensions requires structured planning, not just pattern matching.
+The public schema is:
+- `patient_name`
+- `dob`
+- `visit_date`
+- `country`
+- `currency`
+- `diagnosis`
+- `medication`
+- `emergency_contact`
+- `glucose`
+- `bp_systolic`
+- `bp_diastolic`
 
----
+Full-credit behavior requires effective sequencing:
+1. standardize `dob`
+2. standardize `visit_date`
+3. remove duplicates using `['patient_name', 'dob', 'visit_date']`
+4. fill missing `currency` from `country`
+5. fill missing `medication` from `diagnosis`
+6. standardize `emergency_contact`
+7. clip invalid vitals
 
-## Observation Space
+The duplicates are encoded so they are only fully visible after date normalization. The contextual fills also matter: the correct `currency` depends on `country`, and the correct `medication` depends on `diagnosis`.
 
-```json
-{
-  "task_id":              "task3_hard",
-  "task_name":            "Healthcare Records Full Quality Pipeline",
-  "task_description":     "A hospital export of 20 patient records contains...",
-  "table":                [ {"patient_id": "P003", "bp_systolic": 500, ...}, ... ],
-  "column_schema":        { "patient_id": "str", "bp_systolic": "int", "glucose": "float", "emergency_contact": "str", ... },
-  "quality_issues": [
-    "2 duplicate rows detected (key: [patient_id])",
-    "Column 'diagnosis': 3 missing value(s)",
-    "Column 'dob': 3 date(s) not in YYYY-MM-DD format",
-    "Column 'emergency_contact': 6 phone number(s) not in +91-XXXXX-XXXXX format",
-    "Column 'bp_systolic': 2 value(s) outside valid range [60, 200]",
-    "Column 'glucose': 2 negative value(s) detected"
-  ],
-  "quality_score":        0.0000,
-  "step_count":           0,
-  "max_steps":            25,
-  "available_operations": ["remove_duplicates", "fill_missing", "standardize_date",
-                           "standardize_phone", "remove_negative", "clip_outliers", "done"]
-}
-```
-
-The `quality_issues` field is designed to be directly parseable by LLM agents — each string explicitly names the column, the count, and the violation type, allowing chain-of-thought reasoning to map directly to the right operation.
-
-All six grader components start at `0.0` at reset because every issue present in the initial dataset defines the baseline bad-value count.
-
----
+That is why the deterministic heuristic baseline succeeds on Tasks 1 and 2 but clearly underperforms on Task 3.
 
 ## Action Space
 
+Actions use this shape:
+
 ```json
-{ "operation": "<op>", "column": "<col or null>", "params": {} }
+{
+  "operation": "<op>",
+  "column": "<col or null>",
+  "params": {}
+}
 ```
 
-| Operation | Column | Parameters | Example |
-|-----------|--------|-----------|---------|
-| `remove_duplicates` | Optional | `subset`: column list | `{"operation": "remove_duplicates", "params": {"subset": ["patient_id"]}}` |
-| `fill_missing` | Required | `strategy`: mean/median/mode/constant | `{"operation": "fill_missing", "column": "age", "params": {"strategy": "median"}}` |
-| `standardize_date` | Required | — | `{"operation": "standardize_date", "column": "dob"}` |
-| `standardize_phone` | Required | — | `{"operation": "standardize_phone", "column": "phone"}` |
-| `remove_negative` | Required | — | `{"operation": "remove_negative", "column": "amount"}` |
-| `clip_outliers` | Required | `lower`, `upper` | `{"operation": "clip_outliers", "column": "bp_systolic", "params": {"lower": 60, "upper": 200}}` |
-| `done` | — | — | `{"operation": "done"}` |
+| Operation | Column | Params | Example |
+| --- | --- | --- | --- |
+| `remove_duplicates` | Optional | `subset` list | `{"operation": "remove_duplicates", "params": {"subset": ["patient_name", "dob", "visit_date"]}}` |
+| `fill_missing` | Required | `strategy` plus optional strategy-specific params | `{"operation": "fill_missing", "column": "currency", "params": {"strategy": "mapping", "source_column": "country", "mapping": {"India": "INR"}}}` |
+| `standardize_date` | Required | none | `{"operation": "standardize_date", "column": "dob"}` |
+| `standardize_phone` | Required | none | `{"operation": "standardize_phone", "column": "emergency_contact"}` |
+| `remove_negative` | Required | none | `{"operation": "remove_negative", "column": "amount"}` |
+| `clip_outliers` | Required | `lower`, `upper` | `{"operation": "clip_outliers", "column": "glucose", "params": {"lower": 50, "upper": 500}}` |
+| `done` | No | none | `{"operation": "done"}` |
 
----
+`fill_missing` strategies:
+- `mean`
+- `median`
+- `mode`
+- `constant`
+- `mapping`
 
-## Reward Function
+The `mapping` strategy fills only rows where the target column is missing. It reads a value from `source_column`, applies mappings that actually match present source values, and ignores hallucinated keys without crashing.
 
-```
-reward(t) = quality_score(t) − quality_score(t−1) − 0.01
-```
+## Grading
 
-**Dense by design.** Every step returns a meaningful signal:
-- **Positive** when an operation improves data quality (e.g. fixing dates: +0.073)
-- **Near-zero** when a no-op is applied (penalty only: −0.01)
-- **Negative** when a harmful operation degrades quality
+Each task uses hidden target-based grading, not issue counting.
 
-The quality score itself is a **weighted sum of per-issue component scores**, each in [0.0, 1.0]. In the hard healthcare task, the six dimensions are weighted roughly equally so no single cleanup operation can dominate the final score.
+### Task 1 weights
 
-This reward structure allows RL algorithms to learn efficient cleaning strategies without needing episode-end supervision — every intermediate step is informative.
+| Component | Weight |
+| --- | ---: |
+| `row_fidelity_score` | 0.40 |
+| `age_match_score` | 0.30 |
+| `email_match_score` | 0.30 |
 
----
+### Task 2 weights
 
-## Scoring Breakdown
+| Component | Weight |
+| --- | ---: |
+| `row_fidelity_score` | 0.35 |
+| `date_match_score` | 0.20 |
+| `phone_match_score` | 0.20 |
+| `amount_match_score` | 0.15 |
+| `region_match_score` | 0.10 |
 
-### Task 1 — Customer Records
-| Component | Weight | Criteria |
-|-----------|--------|---------|
-| `duplicate_score` | 40% | Fraction of duplicate (name+email+city) rows removed |
-| `age_missing_score` | 30% | Fraction of missing `age` values filled |
-| `email_missing_score` | 30% | Fraction of missing `email` values filled |
+### Task 3 weights
 
-### Task 2 — Sales Data
-| Component | Weight | Criteria |
-|-----------|--------|---------|
-| `date_format_score` | 25% | Fraction of dates conforming to `YYYY-MM-DD` |
-| `phone_format_score` | 25% | Fraction of phones in `+91-XXXXX-XXXXX` format |
-| `negative_amount_score` | 25% | Fraction of negative `amount` rows removed |
-| `region_missing_score` | 25% | Fraction of missing `region` values filled |
+| Component | Weight |
+| --- | ---: |
+| `row_fidelity_score` | 0.35 |
+| `date_match_score` | 0.15 |
+| `phone_match_score` | 0.10 |
+| `currency_match_score` | 0.15 |
+| `medication_match_score` | 0.10 |
+| `vitals_match_score` | 0.15 |
 
-### Task 3 — Healthcare Records
-| Component | Weight | Criteria |
-|-----------|--------|---------|
-| `duplicate_score` | 16.67% | Fraction of duplicate `patient_id` rows removed |
-| `missing_value_score` | 16.67% | Fraction of missing `diagnosis`/`medication` filled |
-| `date_format_score` | 16.67% | Fraction of `dob` and `last_visit` in ISO 8601 |
-| `phone_format_score` | 16.67% | Fraction of `emergency_contact` values in `+91-XXXXX-XXXXX` format |
-| `outlier_score` | 16.66% | Fraction of vitals within physiological range |
-| `negative_vital_score` | 16.66% | Fraction of negative `glucose` readings removed |
+`row_fidelity_score` is computed from precision/recall F1 on stable hidden row ids. If row precision or recall falls below the threshold, the total score is capped by row fidelity.
 
-All graders are **deterministic and reproducible** — identical input always produces identical output. No randomness, no stochasticity.
+## Baseline Reproduction
 
----
-
-## Baseline Inference Results
-
-| Task | Heuristic Baseline | LLM Agent (expected) |
-|------|--------------------|----------------------|
-| `task1_easy`   | 1.0000 | 1.00 |
-| `task2_medium` | 1.0000 | 1.00 |
-| `task3_hard`   | 1.0000 | 1.00 |
-| **Average**    | **1.0000** | **1.00** |
-
-*Heuristic baseline: deterministic rule-based agent (no LLM).
-With the current `inference.py`, the offline heuristic now reaches a perfect
-`1.0000` on all three tasks, including `task3_hard`.*
-
----
-
-## Setup & Usage
-
-### Local (Python)
+### Local setup
 
 ```bash
 pip install -r requirements.txt
-uvicorn app:app --reload --port 7860
 ```
+
+### Run the API locally
 
 ```bash
-# Start a task
-curl -X POST http://localhost:7860/reset \
-     -H "Content-Type: application/json" \
-     -d '{"task_id": "task1_easy"}'
-
-# Apply an operation
-curl -X POST http://localhost:7860/step \
-     -H "Content-Type: application/json" \
-     -d '{"operation": "remove_duplicates", "column": null, "params": {}}'
-
-# Check state
-curl http://localhost:7860/state
+uvicorn app:app --host 0.0.0.0 --port 7860
 ```
 
-### Docker
-
-```bash
-docker build -t data-quality-env .
-docker run -p 7860:7860 \
-  -e API_BASE_URL="https://router.huggingface.co/v1" \
-  -e MODEL_NAME="Qwen/Qwen2.5-72B-Instruct" \
-  -e HF_TOKEN="hf_..." \
-  data-quality-env
-```
-
-### Run Baseline Inference
+### Run the baseline script
 
 ```bash
 export API_BASE_URL="https://router.huggingface.co/v1"
 export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
 export HF_TOKEN="hf_your_token_here"
+# optional alternative:
+# export OPENAI_API_KEY="hf_your_token_here"
 
 python inference.py
-# → Outputs per-task scores + saves baseline_results.json
 ```
 
-If no API credentials are set, `inference.py` falls back to the offline heuristic baseline automatically.
+If no API credentials are set, `inference.py` automatically uses the offline heuristic policy.
 
----
+## Reproducible Baseline Results
 
-## API Reference
+These numbers come from the current checked-in `inference.py` run and are also saved in [baseline_results.json](baseline_results.json).
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/` | Environment metadata |
-| GET | `/health` | Liveness probe — `{"status": "healthy"}` |
-| GET | `/tasks` | List all 3 tasks with full metadata |
-| POST | `/reset` | Begin episode. Body: `{"task_id": "task1_easy"}` (default if omitted) |
-| POST | `/step` | Apply one action. Returns observation, reward, done, info |
-| GET | `/state` | Lightweight current episode state (no table) |
-| GET | `/schema` | Full JSON schemas for Action, Observation, State |
-| GET | `/docs` | Auto-generated Swagger UI |
+| Task | Policy | Final Score | Notes |
+| --- | --- | ---: | --- |
+| `task1_easy` | heuristic | `0.9999` | Solves the easy CRM workflow cleanly |
+| `task2_medium` | heuristic | `0.9999` | Solves the medium sales workflow cleanly |
+| `task3_hard` | heuristic | `0.5000` | Fails contextual currency and medication fills |
+| `overall_avg` | heuristic | `0.8333` | Honest baseline across all three tasks |
 
----
+That gap is intentional and important. The heuristic baseline struggles on Task 3's chained reasoning, which is exactly the evidence that stronger model-based agents still have room to improve.
+
+## Validation
+
+Run the local checks before submission:
+
+```bash
+openenv validate
+python -m unittest discover -s tests -v
+python inference.py
+python scripts/preflight.py
+```
+
+What those checks cover:
+- `openenv validate`: spec compliance
+- `unittest`: regression coverage for grading, API behavior, and inference logs
+- `inference.py`: reproducible structured baseline output
+- `scripts/preflight.py`: validate, tests, inference, a FastAPI smoke test, and a Docker build when Docker is available
+
+## API Surface
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/` | Metadata |
+| `GET` | `/health` | Health check |
+| `GET` | `/tasks` | Task metadata |
+| `POST` | `/reset` | Start a task |
+| `POST` | `/step` | Apply one action |
+| `GET` | `/state` | Lightweight episode state |
+| `GET` | `/schema` | JSON schemas for action, observation, and state |
+| `GET` | `/docs` | Swagger UI |
 
 ## Project Structure
 
-```
+```text
 data-quality-env/
-├── app.py           # FastAPI server — all HTTP endpoints
-├── environment.py   # DataQualityEnv core (step / reset / state)
-├── models.py        # Pydantic typed models (Action, Observation, Reward, StepResult)
-├── tasks.py         # Embedded datasets for all 3 tasks
-├── graders.py       # Deterministic quality graders (one per task)
-├── inference.py     # Baseline script — offline heuristic or OpenAI-compatible client
-├── openenv.yaml     # OpenEnv spec metadata
-├── baseline_results.json  # Pre-computed baseline for reproducibility
-├── requirements.txt
-├── Dockerfile
-└── README.md
+|- app.py
+|- environment.py
+|- graders.py
+|- inference.py
+|- models.py
+|- tasks.py
+|- openenv.yaml
+|- baseline_results.json
+|- scripts/preflight.py
+|- tests/
+|- Dockerfile
+|- README.md
 ```
 
----
+## Design Notes
 
-## Design Decisions
-
-**Why data cleaning?**
-It is the highest-ROI task in all of data engineering and has zero dedicated RL environments. An agent that learns a generalised cleaning policy across domains (CRM, sales, clinical) is immediately deployable in real pipelines.
-
-**Why three domains?**
-Each domain introduces a qualitatively different class of issue — structural (duplicates), format (dates/phones), domain constraint (clinical vitals). Generalisation across all three is a stronger signal of agent capability than depth in one domain.
-
-**Why dense rewards?**
-Sparse rewards (only at episode end) make credit assignment nearly impossible for multi-step cleaning pipelines. The delta-score reward allows any gradient-based or MCTS agent to learn useful intermediate strategies.
-
-**Why deterministic graders?**
-Reproducibility is not optional in evaluation. Every score in this environment can be audited: given the same input table and the same sequence of actions, the output score is always identical to 4 decimal places.
-
----
-
-## Known Limitations & Future Work
-
-- **Single-session state**: The global `env` instance is not thread-safe. Production deployment should use per-session state or a session-ID pattern.
-- **Fixed datasets**: Tasks use embedded static datasets. A future version should support arbitrary CSV uploads as task input.
-- **Indian phone format**: Task 2's phone normalisation is specific to the +91 format. Extending to global formats is straightforward.
-- **More task domains**: Email triage, schema alignment, and time-series gap-filling are natural extensions.
-
----
+- Real-world utility: the tasks reflect actual cleanup work in CRM, sales, and healthcare operations.
+- Dense rewards: agents get step-by-step learning signal instead of a single episode-end label.
+- Deterministic grading: identical state always yields identical scores.
+- Hidden targets: the benchmark is auditable but not trivially exploitable.
+- Honest baseline: the shipped heuristic is strong on easy and medium, and visibly weaker on hard.
 
 ## License
 
-MIT — © 2026 Yarra Vivek
+MIT. See [LICENSE](LICENSE).

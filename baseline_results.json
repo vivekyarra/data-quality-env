@@ -5,40 +5,41 @@
     {
       "task_id": "task1_easy",
       "steps": 4,
-      "final_score": 1.0,
+      "final_score": 0.9999,
       "breakdown": {
-        "total": 1.0,
-        "duplicate_score": 1.0,
-        "age_missing_score": 1.0,
-        "email_missing_score": 1.0
+        "row_fidelity_score": 1.0,
+        "age_match_score": 1.0,
+        "email_match_score": 1.0,
+        "total": 0.9999
       }
     },
     {
       "task_id": "task2_medium",
       "steps": 5,
-      "final_score": 1.0,
+      "final_score": 0.9999,
       "breakdown": {
-        "total": 1.0,
-        "date_format_score": 1.0,
-        "phone_format_score": 1.0,
-        "negative_amount_score": 1.0,
-        "region_missing_score": 1.0
+        "row_fidelity_score": 1.0,
+        "date_match_score": 1.0,
+        "phone_match_score": 1.0,
+        "amount_match_score": 1.0,
+        "region_match_score": 1.0,
+        "total": 0.9999
       }
     },
     {
       "task_id": "task3_hard",
-      "steps": 11,
-      "final_score": 1.0,
+      "steps": 8,
+      "final_score": 0.5,
       "breakdown": {
-        "total": 1.0,
-        "duplicate_score": 1.0,
-        "missing_value_score": 1.0,
-        "date_format_score": 1.0,
-        "phone_format_score": 1.0,
-        "outlier_score": 1.0,
-        "negative_vital_score": 1.0
+        "row_fidelity_score": 0.5,
+        "date_match_score": 1.0,
+        "phone_match_score": 1.0,
+        "currency_match_score": 0.0,
+        "medication_match_score": 0.0,
+        "vitals_match_score": 1.0,
+        "total": 0.5
       }
     }
   ],
-  "overall_avg": 1.0
+  "overall_avg": 0.8333
 }

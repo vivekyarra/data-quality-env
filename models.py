@@ -1,5 +1,5 @@
 """
-models.py — Typed Pydantic models for DataQualityEnv (OpenEnv spec)
+Typed Pydantic models for DataQualityEnv.
 """
 
 from typing import Any, Dict, List, Optional
@@ -7,66 +7,67 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+ALLOWED_OPERATIONS = [
+    "remove_duplicates",
+    "fill_missing",
+    "standardize_date",
+    "standardize_phone",
+    "remove_negative",
+    "clip_outliers",
+    "done",
+]
+
+
 class Action(BaseModel):
     """
-    Agent action: a single data-transformation operation.
+    Agent action for a single data-cleaning step.
 
-    operation  : one of the ALLOWED_OPERATIONS below
-    column     : target column name (required for column-level ops)
-    params     : extra kwargs for the operation
+    ``fill_missing`` supports ``mean``, ``median``, ``mode``, ``constant``,
+    and ``mapping`` strategies.
     """
+
     operation: str
     column: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
-ALLOWED_OPERATIONS = [
-    "remove_duplicates",   # Drop duplicate rows
-    "fill_missing",        # Impute NaN values
-    "standardize_date",    # Normalise date strings → YYYY-MM-DD
-    "standardize_phone",   # Normalise phone strings → +91-XXXXX-XXXXX
-    "remove_negative",     # Drop rows with negative values in a column
-    "clip_outliers",       # Clip column to a physiological / business range
-    "done",                # Agent signals episode end
-]
-
-
 class Observation(BaseModel):
     """
-    Environment observation returned to the agent after reset() or step().
+    Environment observation returned after ``reset()`` or ``step()``.
     """
+
     task_id: str
     task_name: str
     task_description: str
-    table: List[Dict[str, Any]]           # Current dataset as list of row-dicts
-    column_schema: Dict[str, str]         # col → expected dtype string
-    quality_issues: List[str]             # Human-readable list of detected issues
-    quality_score: float                  # Current 0.0–1.0 quality score
-    step_count: int
-    max_steps: int
+    table: List[Dict[str, Any]]
+    column_schema: Dict[str, str]
+    quality_issues: List[str]
+    quality_score: float = Field(gt=0.0, lt=1.0)
+    step_count: int = Field(ge=0)
+    max_steps: int = Field(ge=1)
     available_operations: List[str]
 
 
 class Reward(BaseModel):
     """
-    Reward signal emitted on every step.
-    value          : delta in quality score minus small step penalty
-    score_breakdown: per-component quality scores for interpretability
+    Dense reward signal emitted on every step.
     """
-    value: float
+
+    value: float = Field(ge=-1.0, le=1.0)
     message: str
     score_breakdown: Dict[str, float]
 
 
 class StepResult(BaseModel):
-    """Full return value of step()."""
+    """
+    Full return value of ``step()``.
+    """
+
     observation: Observation
     reward: Reward
     done: bool
     info: Dict[str, Any]
 
-
-# ── HTTP request schemas ──────────────────────────────────────────────────────
 
 class ResetRequest(BaseModel):
     task_id: str = "task1_easy"
@@ -74,11 +75,11 @@ class ResetRequest(BaseModel):
 
 class StateSnapshot(BaseModel):
     task_id: Optional[str] = None
-    step_count: int
-    max_steps: Optional[int] = None
+    step_count: int = Field(ge=0)
+    max_steps: Optional[int] = Field(default=None, ge=1)
     done: bool
     episode_reward: float
-    quality_score: Optional[float] = None
+    quality_score: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
     table_shape: Optional[List[int]] = None
 
 
@@ -87,5 +88,5 @@ class TaskInfo(BaseModel):
     name: str
     description: str
     difficulty: str
-    max_steps: int
+    max_steps: int = Field(ge=1)
     columns: List[str]

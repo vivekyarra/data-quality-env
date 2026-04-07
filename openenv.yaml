@@ -1,4 +1,4 @@
-spec_version: 1
+﻿spec_version: 1
 name: data-quality-env
 type: space
 runtime: fastapi
@@ -7,36 +7,38 @@ port: 7860
 
 version: "1.0.0"
 description: >
-  A real-world reinforcement learning environment where AI agents learn to clean
-  messy tabular datasets. The agent applies data-transformation operations
-  such as deduplication, imputation, format normalization, and outlier clipping
-  to maximize a quality score across three tasks.
+  A real-world data-cleaning benchmark where agents repair messy tabular
+  datasets through sequential actions. The environment uses hidden target
+  outputs, stable internal row ids, and dense rewards to make progress
+  measurable and hard to game.
 author: "Yarra Vivek"
 license: "MIT"
 
 tasks:
   - id: task1_easy
-    name: "Customer Records Deduplication & Imputation"
+    name: "Customer Records Deduplication and Imputation"
     difficulty: easy
     max_steps: 10
     description: >
-      Remove duplicate customer rows keyed on name, email, and city, then fill
-      missing age and email values.
+      Remove duplicate CRM rows, then recover missing age and email values
+      without losing valid customer records.
   - id: task2_medium
-    name: "Sales Data Standardization & Cleansing"
+    name: "Sales Data Standardization and Cleansing"
     difficulty: medium
     max_steps: 15
     description: >
-      Standardize mixed date formats, normalize Indian phone numbers, remove
-      negative transaction amounts, and fill missing region values.
+      Standardize mixed date formats, normalize Indian phone numbers,
+      remove only the invalid negative transactions, and restore missing
+      region labels.
   - id: task3_hard
-    name: "Healthcare Records Full Quality Pipeline"
+    name: "Healthcare Billing Reconciliation and Quality Repair"
     difficulty: hard
     max_steps: 25
     description: >
-      Remove duplicate patient IDs, fill missing diagnoses and medications,
-      standardize dates, normalize emergency contact phone numbers, clip
-      outliers, and remove negative glucose values.
+      Standardize multiple date columns, deduplicate patient visits only after
+      the dates line up, infer missing currency from country, infer missing
+      medication from diagnosis, normalize emergency-contact phones, and repair
+      invalid vital-sign ranges.
 
 observation_space:
   type: object
@@ -47,9 +49,9 @@ observation_space:
     table: {type: array, items: {type: object}}
     column_schema: {type: object}
     quality_issues: {type: array, items: {type: string}}
-    quality_score: {type: number, minimum: 0.0, maximum: 1.0}
-    step_count: {type: integer}
-    max_steps: {type: integer}
+    quality_score: {type: number, minimum: 0.0001, maximum: 0.9999}
+    step_count: {type: integer, minimum: 0}
+    max_steps: {type: integer, minimum: 1}
     available_operations: {type: array, items: {type: string}}
 
 action_space:
@@ -66,17 +68,23 @@ action_space:
         - clip_outliers
         - done
     column: {type: string, nullable: true}
-    params: {type: object}
+    params:
+      type: object
+      description: >
+        Operation-specific parameters. fill_missing supports mean, median,
+        mode, constant, and mapping strategies. The mapping strategy requires
+        source_column and mapping, and ignores mapping keys that do not appear
+        in the current dataframe.
 
 reward_range: [-1.0, 1.0]
 reward_description: >
-  Dense reward signal: reward = (new_quality_score - old_quality_score) - 0.01.
-  The quality score is a weighted combination of per-issue component scores in
-  [0.0, 1.0].
+  Dense reward signal: reward = (new_exposed_quality_score - old_exposed_quality_score) - 0.01.
+  Raw grader totals are computed in [0.0, 1.0], then every exposed task score
+  is clamped into the open interval (0.0001, 0.9999).
 
 tags:
   - data-cleaning
   - tabular
   - healthcare
-  - finance
+  - revenue-operations
   - reinforcement-learning
