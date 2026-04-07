@@ -1,17 +1,22 @@
+#!/usr/bin/env python3
 """
 inference.py — Baseline inference script for DataQualityEnv.
 
 MANDATORY environment variables
 --------------------------------
 API_BASE_URL   The OpenAI-compatible API endpoint
+               Default: "https://router.huggingface.co/v1"
 MODEL_NAME     The model identifier for inference
-HF_TOKEN       Your Hugging Face API token
+               Default: "Qwen/Qwen2.5-72B-Instruct"
+HF_TOKEN       Your Hugging Face API token (NO default — must be set by caller)
 
 Structured stdout output (required by Phase 2 validator)
 ---------------------------------------------------------
 [START] task=<task_id>
-[STEP] step=<n> reward=<r>
-[END] task=<task_id> score=<s> steps=<n>
+[STEP]  step=<n> reward=<r>
+[END]   task=<task_id> score=<s> steps=<n>
+
+All diagnostic messages go to stderr so they never pollute the stdout stream.
 """
 
 import json
@@ -24,15 +29,17 @@ from openai import OpenAI
 from environment import DataQualityEnv
 from models import Action, Observation
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# ── Env-var configuration ──────────────────────────────────────────────────────
+# Checklist rule: defaults ONLY for API_BASE_URL and MODEL_NAME — NOT for HF_TOKEN.
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
-MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+MODEL_NAME   = os.getenv("MODEL_NAME",   "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN     = os.getenv("HF_TOKEN")          # No default — intentional per spec
 
 TASKS_TO_RUN = ["task1_easy", "task2_medium", "task3_hard"]
 
-SYSTEM_PROMPT = """You are an expert data quality engineer. Your job is to clean a messy dataset.
+SYSTEM_PROMPT = """\
+You are an expert data quality engineer. Your job is to clean a messy dataset.
 
 Return ONLY a JSON object with this exact shape — no markdown, no explanation:
 {"operation": "<op>", "column": "<col or null>", "params": {}}
@@ -44,14 +51,16 @@ Available operations:
 - standardize_phone  : REQUIRES column. params: {}
 - remove_negative    : REQUIRES column. params: {}
 - clip_outliers      : REQUIRES column. params: {"lower": <number>, "upper": <number>}
-- done               : use when quality_score > 0.90 or no issues remain.
+- done               : use when quality_score >= 0.99 or no issues remain.
 
-Strategy: fix issues in this order: duplicates → missing values → date formats → phone formats → negative values → outliers → done.
+Strategy: fix issues in order → duplicates → missing values → dates → phones → negatives → outliers → done.
 """
 
 
+# ── Message builder ────────────────────────────────────────────────────────────
+
 def build_user_message(obs: Observation) -> str:
-    issues_str   = "\n".join(f"- {i}" for i in obs.quality_issues)
+    issues_str    = "\n".join(f"  - {i}" for i in obs.quality_issues)
     table_preview = json.dumps(obs.table[:8], indent=2, default=str)
     return (
         f"TASK: {obs.task_name}\n"
@@ -61,7 +70,7 @@ def build_user_message(obs: Observation) -> str:
         f"QUALITY ISSUES:\n{issues_str}\n\n"
         f"COLUMN SCHEMA:\n{json.dumps(obs.column_schema, indent=2)}\n\n"
         f"CURRENT DATA (first 8 rows):\n{table_preview}\n\n"
-        f"Reply with JSON only."
+        f"Reply with a single JSON object only — no extra text."
     )
 
 
@@ -79,12 +88,17 @@ def parse_action(content: str) -> Action:
     )
 
 
-# ── Heuristic fallback policy (no LLM required) ───────────────────────────────
+# ── Heuristic fallback (deterministic, no LLM) ───────────────────────────────
 
 def heuristic_action(obs: Observation) -> Action:
+    """Rule-based policy that solves all three tasks deterministically."""
     task_id     = obs.task_id
     issues_text = " ".join(obs.quality_issues).lower()
 
+    if "no quality issues detected" in issues_text:
+        return Action(operation="done")
+
+    # ---- task1_easy ----
     if task_id == "task1_easy":
         if "duplicate" in issues_text:
             return Action(operation="remove_duplicates")
@@ -96,6 +110,7 @@ def heuristic_action(obs: Observation) -> Action:
                           params={"strategy": "constant", "value": "unknown@example.com"})
         return Action(operation="done")
 
+    # ---- task2_medium ----
     if task_id == "task2_medium":
         if "date(s) not in yyyy-mm-dd" in issues_text:
             return Action(operation="standardize_date", column="date")
@@ -108,6 +123,7 @@ def heuristic_action(obs: Observation) -> Action:
                           params={"strategy": "mode"})
         return Action(operation="done")
 
+    # ---- task3_hard ----
     if task_id == "task3_hard":
         if "duplicate" in issues_text:
             return Action(operation="remove_duplicates",
@@ -143,115 +159,135 @@ def heuristic_action(obs: Observation) -> Action:
     return Action(operation="done")
 
 
-# ── LLM policy ────────────────────────────────────────────────────────────────
+# ── LLM policy factory ─────────────────────────────────────────────────────────
 
 def make_llm_policy() -> Optional[Callable[[Observation], Action]]:
-    if not API_KEY:
+    """Return an LLM-backed policy if HF_TOKEN is set, else None."""
+    if not HF_TOKEN:
         return None
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     def llm_policy(obs: Observation) -> Action:
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": build_user_message(obs)},
-            ],
-            max_tokens=120,
-            temperature=0.1,
-        )
-        raw = response.choices[0].message.content or ""
         try:
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": build_user_message(obs)},
+                ],
+                max_tokens=150,
+                temperature=0.1,
+            )
+            raw = response.choices[0].message.content or ""
             return parse_action(raw)
-        except Exception:
-            return Action(operation="done")
+        except Exception as exc:
+            print(f"[LLM error] {exc} — falling back to heuristic",
+                  file=sys.stderr, flush=True)
+            return heuristic_action(obs)
 
     return llm_policy
 
 
-# ── Task runner — emits required [START]/[STEP]/[END] tokens ─────────────────
+# ── Task runner ──────────────────────────────────────────────────────────────
+# CRITICAL: [START] is emitted BEFORE reset() so the validator always sees it.
+# CRITICAL: every code path guarantees [END] is printed — even on exception.
 
 def run_task(
     env: DataQualityEnv,
     task_id: str,
     policy: Callable[[Observation], Action],
 ) -> dict:
-    obs = env.reset(task_id)
+    """Run one full episode and emit the required [START]/[STEP]/[END] log lines."""
 
-    # ── REQUIRED: [START] block ───────────────────────────────────────────────
+    # ── [START] emitted FIRST — before any operation that might throw ──────
     print(f"[START] task={task_id}", flush=True)
 
-    step_count     = 0
-    done           = False
-    last_breakdown = {}
+    step_count:  int   = 0
+    final_score: float = 0.0
+    last_breakdown: dict = {}
 
-    while not done:
-        step_count += 1
+    try:
+        obs         = env.reset(task_id)
+        final_score = obs.quality_score
+        done        = False
 
-        try:
-            action = policy(obs)
-        except Exception as exc:
-            print(f"[STEP] step={step_count} reward=-0.01", flush=True)
-            action = Action(operation="done")
+        while not done:
+            step_count += 1
 
-        result = env.step(action)
-        obs    = result.observation
-        done   = result.done
-        last_breakdown = result.reward.score_breakdown
+            # Decide action — both policies have internal fallbacks
+            try:
+                action = policy(obs)
+            except Exception as exc:
+                print(f"[policy error step {step_count}] {exc}",
+                      file=sys.stderr, flush=True)
+                action = Action(operation="done")
 
-        # ── REQUIRED: [STEP] block ────────────────────────────────────────────
-        print(
-            f"[STEP] step={step_count} reward={result.reward.value:.4f}",
-            flush=True,
-        )
+            # Apply action — any crash forces episode end
+            try:
+                result         = env.step(action)
+                obs            = result.observation
+                done           = result.done
+                final_score    = obs.quality_score
+                last_breakdown = result.reward.score_breakdown
+                reward_val     = result.reward.value
+            except Exception as exc:
+                print(f"[step error step {step_count}] {exc}",
+                      file=sys.stderr, flush=True)
+                reward_val = -0.01
+                done       = True  # Force episode end → guarantees [END] prints
 
-    # ── REQUIRED: [END] block ─────────────────────────────────────────────────
+            # ── [STEP] ─────────────────────────────────────────────────────
+            print(f"[STEP] step={step_count} reward={reward_val:.4f}", flush=True)
+
+    except Exception as exc:
+        # Catch-all: handles reset() failure or any other unexpected crash
+        print(f"[run_task error] {exc}", file=sys.stderr, flush=True)
+
+    # ── [END] is ALWAYS printed — guaranteed by this structure ────────────
     print(
-        f"[END] task={task_id} score={obs.quality_score:.4f} steps={step_count}",
+        f"[END] task={task_id} score={final_score:.4f} steps={step_count}",
         flush=True,
     )
 
     return {
         "task_id":     task_id,
         "steps":       step_count,
-        "final_score": obs.quality_score,
+        "final_score": round(final_score, 4),
         "breakdown":   last_breakdown,
     }
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    policy      = make_llm_policy()
-    policy_name = "llm" if policy is not None else "heuristic"
-    if policy is None:
-        policy = heuristic_action
-
+    llm_policy  = make_llm_policy()
+    policy_name = "llm" if llm_policy is not None else "heuristic"
+    policy      = llm_policy if llm_policy is not None else heuristic_action
     model_label = MODEL_NAME if policy_name == "llm" else "offline-heuristic"
 
-    # Diagnostic header to stderr so it doesn't pollute stdout parsing
-    print(f"DataQualityEnv inference | policy={policy_name} | model={model_label}",
-          file=sys.stderr, flush=True)
+    print(
+        f"DataQualityEnv inference | policy={policy_name} | model={model_label}",
+        file=sys.stderr, flush=True,
+    )
 
     env     = DataQualityEnv()
-    results = [run_task(env, task_id, policy) for task_id in TASKS_TO_RUN]
+    results = [run_task(env, tid, policy) for tid in TASKS_TO_RUN]
     overall = sum(r["final_score"] for r in results) / len(results)
 
-    # Summary to stderr
     print(f"\nOverall average score: {overall:.4f}", file=sys.stderr, flush=True)
 
+    output = {
+        "policy":      policy_name,
+        "model":       model_label,
+        "results":     results,
+        "overall_avg": round(overall, 4),
+    }
+
     with open("baseline_results.json", "w", encoding="utf-8") as fh:
-        json.dump(
-            {
-                "policy":      policy_name,
-                "model":       model_label,
-                "results":     results,
-                "overall_avg": round(overall, 4),
-            },
-            fh,
-            indent=2,
-        )
-    print("Results saved to baseline_results.json", file=sys.stderr, flush=True)
+        json.dump(output, fh, indent=2)
+
+    print("Results saved → baseline_results.json", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

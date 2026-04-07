@@ -176,12 +176,12 @@ All graders are **deterministic and reproducible** — identical input always pr
 |------|--------------------|----------------------|
 | `task1_easy`   | 1.0000 | 1.00 |
 | `task2_medium` | 1.0000 | 1.00 |
-| `task3_hard`   | 0.8333 | 0.93–0.97 |
-| **Average**    | **0.9444** | **~0.98** |
+| `task3_hard`   | 1.0000 | 1.00 |
+| **Average**    | **1.0000** | **1.00** |
 
 *Heuristic baseline: deterministic rule-based agent (no LLM).
-Task 3 gap is intentional — the hard task requires inferring physiological bounds
-from the `quality_issues` observation, which only a reasoning LLM can do.*
+With the current `inference.py`, the offline heuristic now reaches a perfect
+`1.0000` on all three tasks, including `task3_hard`.*
 
 ---
 
