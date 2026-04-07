@@ -49,9 +49,9 @@ class InferenceScriptTests(unittest.TestCase):
     @staticmethod
     def _is_structured_log(line: str) -> bool:
         patterns = [
-            r"^\[START\] task=[A-Za-z0-9_]+$",
-            r"^\[STEP\] step=\d+ reward=-?\d+\.\d{4}$",
-            r"^\[END\] task=[A-Za-z0-9_]+ score=\d+\.\d{4} steps=\d+$",
+            r"^\[START\] task=[A-Za-z0-9_]+ env=[A-Za-z0-9_-]+ model=[^\s]+$",
+            r"^\[STEP\] step=\d+ action=\{.*\} reward=-?\d+\.\d{4} done=(true|false) error=(null|\".*\")$",
+            r"^\[END\] success=(true|false) steps=\d+ score=\d+\.\d{4} rewards=\[.*\]$",
         ]
         return any(re.match(pattern, line) for pattern in patterns)
 

@@ -1,8 +1,8 @@
 ﻿# DataQualityEnv
 
-An OpenEnv-compatible benchmark for agentic data cleaning on realistic tabular workflows.
+An OpenEnv-compatible benchmark for agentic operational data remediation across customer operations, revenue operations, and healthcare billing workflows.
 
-`DataQualityEnv` asks an agent to repair messy tables through a standard `reset()` / `step()` / `state()` loop. The benchmark covers CRM cleanup, sales-data normalization, and a chained healthcare-billing task that requires ordering, context, and precision rather than brute-force row deletion.
+`DataQualityEnv` asks an agent to repair messy business-critical tables through a standard `reset()` / `step()` / `state()` loop. Instead of generic CSV hygiene, the benchmark focuses on cross-functional data incidents: broken CRM records, malformed sales operations exports, and a healthcare-billing reconciliation task that requires ordering, context, and precision rather than brute-force row deletion.
 
 ## Why This Benchmark Matters
 
@@ -14,7 +14,7 @@ This environment is built to evaluate whether an agent can:
 - plan multi-step cleanup sequences across a trajectory
 - avoid gaming the score by deleting rows
 
-That makes it useful for agent evaluation, RL training, and tool-use benchmarking in a domain people actually care about.
+That makes it useful for agent evaluation, RL training, and tool-use benchmarking in operational domains where bad data directly blocks downstream work.
 
 ## What Makes It Hard To Game
 
@@ -26,6 +26,8 @@ It uses three guardrails:
 - Row-fidelity cap: if precision or recall drops below the threshold, the total score is capped by row fidelity. Deleting lots of rows tanks the score.
 
 The result is simple: a lazy strategy like `remove_negative` or `clip_outliers` on the wrong column cannot win by shrinking the table.
+
+This is meant to feel closer to operational incident response than to toy spreadsheet cleanup.
 
 ## Environment Mechanics
 
@@ -193,6 +195,8 @@ python inference.py
 
 If no API credentials are set, `inference.py` automatically uses the offline heuristic policy.
 
+That heuristic now inspects the table state directly. It does not depend on matching the exact wording of `quality_issues`, which makes the baseline less brittle and less obviously hardcoded to the prompt text.
+
 ## Reproducible Baseline Results
 
 These numbers come from the current checked-in `inference.py` run and are also saved in [baseline_results.json](baseline_results.json).
@@ -205,6 +209,8 @@ These numbers come from the current checked-in `inference.py` run and are also s
 | `overall_avg` | heuristic | `0.8333` | Honest baseline across all three tasks |
 
 That gap is intentional and important. The heuristic baseline struggles on Task 3's chained reasoning, which is exactly the evidence that stronger model-based agents still have room to improve.
+
+The script also emits strict sample-style structured stdout with `[START]`, `[STEP]`, and `[END]` records so evaluator-side log parsing stays deterministic.
 
 ## Validation
 
@@ -256,11 +262,11 @@ data-quality-env/
 
 ## Design Notes
 
-- Real-world utility: the tasks reflect actual cleanup work in CRM, sales, and healthcare operations.
+- Real-world utility: the tasks reflect operational data remediation work in CRM, revenue operations, and healthcare billing.
 - Dense rewards: agents get step-by-step learning signal instead of a single episode-end label.
 - Deterministic grading: identical state always yields identical scores.
 - Hidden targets: the benchmark is auditable but not trivially exploitable.
-- Honest baseline: the shipped heuristic is strong on easy and medium, and visibly weaker on hard.
+- Honest baseline: the shipped heuristic is table-driven, strong on easy and medium, and visibly weaker on hard.
 
 ## License
 

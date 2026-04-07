@@ -7,10 +7,10 @@ port: 7860
 
 version: "1.0.0"
 description: >
-  A real-world data-cleaning benchmark where agents repair messy tabular
-  datasets through sequential actions. The environment uses hidden target
-  outputs, stable internal row ids, and dense rewards to make progress
-  measurable and hard to game.
+  A cross-domain operational data remediation benchmark where agents repair
+  CRM, revenue-operations, and healthcare-billing tables through sequential
+  actions. The environment uses hidden target outputs, stable internal row
+  ids, and dense rewards to make progress measurable and hard to game.
 author: "Yarra Vivek"
 license: "MIT"
 

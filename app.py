@@ -13,8 +13,8 @@ from models import Action, Observation, ResetRequest, StateSnapshot
 APP_NAME = "DataQualityEnv"
 APP_VERSION = "1.0.0"
 APP_DESCRIPTION = (
-    "OpenEnv environment for data quality and cleaning tasks on real-world "
-    "tabular datasets."
+    "OpenEnv environment for cross-domain operational data remediation on "
+    "CRM, revenue-operations, and healthcare-billing tables."
 )
 
 app = FastAPI(

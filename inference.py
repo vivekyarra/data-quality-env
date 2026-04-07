@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from openai import OpenAI
 
@@ -27,6 +28,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 API_KEY = HF_TOKEN or OPENAI_API_KEY
 
 TASKS_TO_RUN = ["task1_easy", "task2_medium", "task3_hard"]
+BENCHMARK = "data-quality-env"
+SUCCESS_SCORE_THRESHOLD = 0.95
+
+ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+PHONE_FMT = re.compile(r"^\+91-\d{5}-\d{5}$")
 
 SYSTEM_PROMPT = """\
 You are an expert data quality engineer. Clean the dataset and return only JSON.
@@ -82,6 +88,102 @@ def parse_action(content: str) -> Action:
     )
 
 
+def _json_compact(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+
+
+def _format_bool(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
+
+
+def log_step(step: int, action: Action, reward: float, done: bool, error: Optional[str]) -> None:
+    print(
+        "[STEP] "
+        f"step={step} "
+        f"action={_json_compact(action.model_dump())} "
+        f"reward={reward:.4f} "
+        f"done={_format_bool(done)} "
+        f"error={_json_compact(error)}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: list[float]) -> None:
+    print(
+        "[END] "
+        f"success={_format_bool(success)} "
+        f"steps={steps} "
+        f"score={score:.4f} "
+        f"rewards={_json_compact([round(value, 4) for value in rewards])}",
+        flush=True,
+    )
+
+
+def _is_missing(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and value.strip() == "")
+
+
+def _column_values(obs: Observation, column: str) -> list[Any]:
+    return [row.get(column) for row in obs.table]
+
+
+def _has_duplicates(obs: Observation, subset: list[str]) -> bool:
+    seen = set()
+    for row in obs.table:
+        key = tuple(row.get(column) for column in subset)
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
+
+
+def _has_missing(obs: Observation, column: str) -> bool:
+    return any(_is_missing(value) for value in _column_values(obs, column))
+
+
+def _needs_date_standardization(obs: Observation, column: str) -> bool:
+    return any(
+        not _is_missing(value) and not ISO_DATE.match(str(value).strip())
+        for value in _column_values(obs, column)
+    )
+
+
+def _needs_phone_standardization(obs: Observation, column: str) -> bool:
+    return any(
+        not _is_missing(value) and not PHONE_FMT.match(str(value).strip())
+        for value in _column_values(obs, column)
+    )
+
+
+def _has_negative(obs: Observation, column: str) -> bool:
+    for value in _column_values(obs, column):
+        if _is_missing(value):
+            continue
+        try:
+            if float(value) < 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _has_out_of_range(obs: Observation, column: str, lower: float, upper: float) -> bool:
+    for value in _column_values(obs, column):
+        if _is_missing(value):
+            continue
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if numeric < lower or numeric > upper:
+            return True
+    return False
+
+
 def heuristic_action(obs: Observation) -> Action:
     """
     Deterministic baseline.
@@ -91,21 +193,17 @@ def heuristic_action(obs: Observation) -> Action:
     """
 
     task_id = obs.task_id
-    issues_text = " ".join(obs.quality_issues).lower()
-
-    if "no quality issues detected" in issues_text:
-        return Action(operation="done")
 
     if task_id == "task1_easy":
-        if "duplicate" in issues_text:
+        if _has_duplicates(obs, ["name", "email", "city"]):
             return Action(operation="remove_duplicates")
-        if "column 'age'" in issues_text:
+        if _has_missing(obs, "age"):
             return Action(
                 operation="fill_missing",
                 column="age",
                 params={"strategy": "median"},
             )
-        if "column 'email'" in issues_text:
+        if _has_missing(obs, "email"):
             return Action(
                 operation="fill_missing",
                 column="email",
@@ -114,13 +212,13 @@ def heuristic_action(obs: Observation) -> Action:
         return Action(operation="done")
 
     if task_id == "task2_medium":
-        if "date(s) not in yyyy-mm-dd" in issues_text:
+        if _needs_date_standardization(obs, "date"):
             return Action(operation="standardize_date", column="date")
-        if "phone number(s)" in issues_text:
+        if _needs_phone_standardization(obs, "phone"):
             return Action(operation="standardize_phone", column="phone")
-        if "negative value(s)" in issues_text:
+        if _has_negative(obs, "amount"):
             return Action(operation="remove_negative", column="amount")
-        if "column 'region'" in issues_text:
+        if _has_missing(obs, "region"):
             return Action(
                 operation="fill_missing",
                 column="region",
@@ -129,32 +227,30 @@ def heuristic_action(obs: Observation) -> Action:
         return Action(operation="done")
 
     if task_id == "task3_hard":
-        if "column 'dob'" in issues_text:
+        if _needs_date_standardization(obs, "dob"):
             return Action(operation="standardize_date", column="dob")
-        if "column 'visit_date'" in issues_text:
+        if _needs_date_standardization(obs, "visit_date"):
             return Action(operation="standardize_date", column="visit_date")
-        if "duplicate rows detected" in issues_text:
+        if _has_duplicates(obs, ["patient_name", "dob", "visit_date"]):
             return Action(
                 operation="remove_duplicates",
                 params={"subset": ["patient_name", "dob", "visit_date"]},
             )
-        if "column 'emergency_contact'" in issues_text:
+        if _needs_phone_standardization(obs, "emergency_contact"):
             return Action(operation="standardize_phone", column="emergency_contact")
-        if "column 'bp_systolic'" in issues_text:
+        if _has_out_of_range(obs, "bp_systolic", 60, 200):
             return Action(
                 operation="clip_outliers",
                 column="bp_systolic",
                 params={"lower": 60, "upper": 200},
             )
-        if "column 'bp_diastolic'" in issues_text:
+        if _has_out_of_range(obs, "bp_diastolic", 40, 130):
             return Action(
                 operation="clip_outliers",
                 column="bp_diastolic",
                 params={"lower": 40, "upper": 130},
             )
-        if "column 'glucose'" in issues_text and (
-            "negative value(s)" in issues_text or "outside valid range" in issues_text
-        ):
+        if _has_out_of_range(obs, "glucose", 50, 500) or _has_negative(obs, "glucose"):
             return Action(
                 operation="clip_outliers",
                 column="glucose",
@@ -195,12 +291,15 @@ def run_task(
     env: DataQualityEnv,
     task_id: str,
     policy: Callable[[Observation], Action],
+    model_label: str,
 ) -> dict:
-    print(f"[START] task={task_id}", flush=True)
+    log_start(task=task_id, env=BENCHMARK, model=model_label)
 
     step_count = 0
     final_score = 0.0001
     last_breakdown: dict = {}
+    rewards: list[float] = []
+    success = False
 
     try:
         obs = env.reset(task_id)
@@ -223,17 +322,21 @@ def run_task(
                 final_score = obs.quality_score
                 last_breakdown = result.reward.score_breakdown
                 reward_value = result.reward.value
+                error = None
             except Exception as exc:
                 print(f"[step error step {step_count}] {exc}", file=sys.stderr, flush=True)
                 reward_value = -0.01
                 done = True
+                error = str(exc)
 
-            print(f"[STEP] step={step_count} reward={reward_value:.4f}", flush=True)
+            rewards.append(reward_value)
+            log_step(step=step_count, action=action, reward=reward_value, done=done, error=error)
 
     except Exception as exc:
         print(f"[run_task error] {exc}", file=sys.stderr, flush=True)
-
-    print(f"[END] task={task_id} score={final_score:.4f} steps={step_count}", flush=True)
+    finally:
+        success = final_score >= SUCCESS_SCORE_THRESHOLD
+        log_end(success=success, steps=step_count, score=final_score, rewards=rewards)
 
     return {
         "task_id": task_id,
@@ -256,7 +359,7 @@ def main() -> None:
     )
 
     env = DataQualityEnv()
-    results = [run_task(env, task_id, policy) for task_id in TASKS_TO_RUN]
+    results = [run_task(env, task_id, policy, model_label) for task_id in TASKS_TO_RUN]
     overall = round(sum(item["final_score"] for item in results) / len(results), 4)
 
     print(f"\nOverall average score: {overall:.4f}", file=sys.stderr, flush=True)
